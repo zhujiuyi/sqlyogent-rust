@@ -7,6 +7,7 @@ use std::thread;
 use std::time::Duration;
 
 use eframe::egui::{self, Align, Layout, TextEdit};
+use harbor_sql::APP_NAME;
 use harbor_sql::jobs::{
     CANCELLED_EXIT_CODE, DESKTOP_ODBC_RUN, DESKTOP_ODBC_STOP, backup_editor, data_sync_editor,
     is_odbc_job, job_lock_path, notification_editor, odbc_editor,
@@ -424,7 +425,7 @@ impl Manager {
                                         !busy && trigger.is_some(),
                                         egui::Button::new("保存调度"),
                                     )
-                                    .on_hover_text("关闭港湾 SQL 后仍由系统触发。")
+                                    .on_hover_text(format!("关闭 {APP_NAME} 后仍由系统触发。"))
                                     .clicked()
                                     && let Some(trigger) = trigger
                                 {
@@ -1059,8 +1060,10 @@ fn is_json_path(path: &Path) -> bool {
 
 fn companion() -> Result<PathBuf, String> {
     let executable =
-        std::env::current_exe().map_err(|error| format!("无法定位港湾 SQL：{error}"))?;
-    let directory = executable.parent().ok_or("无法定位港湾 SQL 的程序目录。")?;
+        std::env::current_exe().map_err(|error| format!("无法定位 {APP_NAME}：{error}"))?;
+    let directory = executable
+        .parent()
+        .ok_or_else(|| format!("无法定位 {APP_NAME} 的程序目录。"))?;
     #[cfg(windows)]
     let names = ["HarborSQL-Job.exe", "harbor-sql-job.exe"];
     #[cfg(not(windows))]
@@ -1069,7 +1072,7 @@ fn companion() -> Result<PathBuf, String> {
         .into_iter()
         .map(|name| directory.join(name))
         .find(|path| path.is_file())
-        .ok_or_else(|| "程序目录中找不到港湾 SQL 作业程序。".into())
+        .ok_or_else(|| format!("程序目录中找不到 {APP_NAME} 作业程序。"))
 }
 
 fn edit_document(path: &Path) -> Result<(), String> {

@@ -228,7 +228,7 @@ fn detect_encoding(
             .strip_prefix(DUMP_CLIENT_STATE.as_bytes())
             .is_some_and(|after| after.starts_with(generated.tagged_line().as_bytes()));
         if !header {
-            return Err("SQL 转储编码标记后缺少匹配的港湾 SQL 文件头。".into());
+            return Err("SQL 转储编码标记后缺少匹配的备份文件头。".into());
         }
         return Ok(RestoreEncoding::Marked(charset));
     }

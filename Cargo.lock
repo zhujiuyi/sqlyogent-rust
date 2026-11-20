@@ -1804,6 +1804,7 @@ dependencies = [
  "eframe",
  "egui_extras",
  "encoding_rs",
+ "find-msvc-tools",
  "image",
  "jetdb",
  "lettre",

@@ -4,15 +4,33 @@ mod app;
 #[cfg(debug_assertions)]
 mod smoke;
 
-use harbor_sql::{database, maintenance, odbc, sql_tools};
+use harbor_sql::{APP_NAME, database, maintenance, odbc, sql_tools};
 use std::{
     ffi::OsString,
     io,
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
 };
 
 static DATA_DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
+static APPLICATION_ICON: OnceLock<Arc<eframe::egui::IconData>> = OnceLock::new();
+
+fn application_icon() -> &'static Arc<eframe::egui::IconData> {
+    APPLICATION_ICON.get_or_init(|| {
+        let rgba = image::load_from_memory_with_format(
+            include_bytes!("../assets/dolphin.png"),
+            image::ImageFormat::Png,
+        )
+        .expect("the bundled application icon must be a PNG")
+        .resize_exact(128, 128, image::imageops::FilterType::Lanczos3)
+        .into_rgba8();
+        Arc::new(eframe::egui::IconData {
+            width: rgba.width(),
+            height: rgba.height(),
+            rgba: rgba.into_raw(),
+        })
+    })
+}
 
 fn main() -> eframe::Result {
     #[cfg(debug_assertions)]
@@ -44,12 +62,13 @@ fn main() -> eframe::Result {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([1220.0, 790.0])
             .with_min_inner_size([850.0, 560.0])
+            .with_icon(Arc::clone(application_icon()))
             .with_app_id("HarborSQL"),
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
     eframe::run_native(
-        "港湾 SQL",
+        APP_NAME,
         options,
         Box::new(|cc| Ok(Box::new(app::Workbench::new(&cc.egui_ctx)))),
     )
@@ -63,7 +82,10 @@ fn configure_data_directory() -> io::Result<()> {
             resolve_data_directory(path, &std::env::current_exe()?)?
         };
         std::fs::create_dir_all(&path).map_err(|error| {
-            io::Error::new(error.kind(), format!("无法创建港湾 SQL 数据目录。{error}"))
+            io::Error::new(
+                error.kind(),
+                format!("无法创建{APP_NAME}的数据目录。{error}"),
+            )
         })?;
         DATA_DIRECTORY
             .set(path)
@@ -112,7 +134,7 @@ fn resolve_data_directory(path: PathBuf, executable: &Path) -> io::Result<PathBu
     executable
         .parent()
         .map(|directory| directory.join(path))
-        .ok_or_else(|| io::Error::other("无法找到港湾 SQL 所在的目录。"))
+        .ok_or_else(|| io::Error::other(format!("无法找到{APP_NAME}所在的目录。")))
 }
 
 #[cfg(test)]

@@ -1,0 +1,34 @@
+#include <winver.h>
+
+#define APP_NAME "小海豚MysqlGui"
+
+1 ICON "assets\\dolphin.ico"
+
+// Simplified Chinese version information, Unicode string table.
+LANGUAGE 0x04, 0x02
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION APP_VERSION_NUMBER
+ PRODUCTVERSION APP_VERSION_NUMBER
+ FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+ FILEFLAGS 0
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE 0
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404B0"
+        BEGIN
+            VALUE "FileDescription", APP_NAME
+            VALUE "FileVersion", APP_VERSION_TEXT
+            VALUE "InternalName", "harbor-sql"
+            VALUE "OriginalFilename", "HarborSQL.exe"
+            VALUE "ProductName", APP_NAME
+            VALUE "ProductVersion", APP_VERSION_TEXT
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0804, 1200
+    END
+END

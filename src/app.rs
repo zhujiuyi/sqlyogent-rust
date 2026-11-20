@@ -45,6 +45,7 @@ use std::{
 };
 
 use eframe::egui::{self, Align, Button, Key, Layout, Modifiers, RichText, TextEdit};
+use harbor_sql::APP_NAME;
 
 use crate::database::{
     Command, ConnectionProbe, DbObject, HTTP_CONTENT_TYPES, ObjectKind, Response, Worker,
@@ -212,6 +213,7 @@ impl ClipboardRequest {
 }
 
 pub struct Workbench {
+    brand_icon: egui::TextureHandle,
     profiles: Vec<Profile>,
     profiles_readable: bool,
     workspaces: Vec<Workspace>,
@@ -1120,6 +1122,15 @@ fn exact_shortcuts_use_the_modifiers_at_key_press() {
 impl Workbench {
     pub fn new(ctx: &egui::Context) -> Self {
         style::apply(ctx);
+        let icon = crate::application_icon();
+        let brand_icon = ctx.load_texture(
+            "application-icon",
+            egui::ColorImage::from_rgba_unmultiplied(
+                [icon.width as usize, icon.height as usize],
+                &icon.rgba,
+            ),
+            egui::TextureOptions::LINEAR,
+        );
         let mut workspace = Workspace::new("临时查询".into(), None);
         let mut preferences = match preferences::Preferences::load() {
             Ok(preferences) => preferences,
@@ -1153,6 +1164,7 @@ impl Workbench {
             }
         };
         Self {
+            brand_icon,
             profiles,
             profiles_readable,
             workspaces: vec![workspace],
@@ -1857,22 +1869,11 @@ impl Workbench {
         egui::TopBottomPanel::top("application-bar")
             .frame(style::bar(egui::Margin::symmetric(16, 8)))
             .show(ctx, |ui| {
-                let compact = ui.available_width() < 690.0;
+                let compact = ui.available_width() < 760.0;
                 ui.horizontal_wrapped(|ui| {
-                    let (mark, _) =
-                        ui.allocate_exact_size(egui::vec2(25.0, 25.0), egui::Sense::hover());
-                    let painter = ui.painter();
-                    painter.rect_filled(mark, 7.0, style::ACCENT);
-                    for (offset, width) in [(-4.5, 12.0), (0.0, 10.0), (4.5, 8.0)] {
-                        let center = mark.center() + egui::vec2(0.0, offset);
-                        painter.rect_filled(
-                            egui::Rect::from_center_size(center, egui::vec2(width, 2.0)),
-                            1.0,
-                            style::SURFACE,
-                        );
-                    }
+                    ui.image((self.brand_icon.id(), egui::vec2(25.0, 25.0)));
                     ui.label(
-                        RichText::new("港湾 SQL")
+                        RichText::new(APP_NAME)
                             .size(19.0)
                             .strong()
                             .color(style::INK),

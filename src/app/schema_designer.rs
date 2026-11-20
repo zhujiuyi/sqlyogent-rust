@@ -9,6 +9,7 @@ use std::{
 use eframe::egui::{
     self, Align2, Color32, FontId, Pos2, Rect, RichText, Stroke, StrokeKind, Vec2, pos2, vec2,
 };
+use harbor_sql::APP_NAME;
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -92,7 +93,7 @@ impl Layout {
 
     fn validate(&self) -> Result<(), String> {
         if self.version != 1 {
-            return Err("此港湾架构布局版本不受支持。".into());
+            return Err(format!("此 {APP_NAME} 架构布局版本不受支持。"));
         }
         if (!self.schema.is_empty() && !identifier_ok(&self.schema))
             || !(MIN_ZOOM..=MAX_ZOOM).contains(&self.zoom)
@@ -456,7 +457,7 @@ impl Designer {
         } else {
             FileDialog::new()
                 .set_title("保存架构布局")
-                .add_filter("港湾架构布局", &["hschema"])
+                .add_filter(format!("{APP_NAME} 架构布局"), &["hschema"])
                 .add_filter("SQLyog 架构 XML", &["schemaxml"])
                 .set_file_name("架构布局.hschema")
                 .save_file()

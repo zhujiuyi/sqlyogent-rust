@@ -14,7 +14,7 @@ impl Page {
         match self {
             Self::Guide => "使用帮助",
             Self::Shortcuts => "快捷键",
-            Self::About => "关于港湾 SQL",
+            Self::About => "关于小海豚MysqlGui",
         }
     }
 }

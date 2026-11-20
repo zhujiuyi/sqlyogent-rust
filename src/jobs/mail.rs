@@ -10,6 +10,8 @@ use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Message, SmtpTransport, Transport};
 use serde::{Deserialize, Serialize};
 
+use crate::APP_NAME;
+
 use super::{legacy_sync::valid_host, redact_values};
 
 const ATTACHMENT_LIMIT: u64 = 10 * 1024 * 1024;
@@ -151,8 +153,8 @@ impl Notification {
     pub fn send_test(&self) -> Result<(), String> {
         self.validate()?;
         self.deliver(
-            "港湾 SQL 邮件设置测试",
-            "这封测试邮件用于验证港湾 SQL 的 SMTP 设置。".into(),
+            &format!("{APP_NAME} 邮件设置测试"),
+            format!("这封测试邮件用于验证 {APP_NAME} 的 SMTP 设置。"),
             None,
         )
     }
@@ -162,11 +164,8 @@ impl Notification {
             Some(SubjectDate::Date) => Local::now().format("%Y-%m-%d").to_string(),
             Some(SubjectDate::DateTime) => Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             None => self.subject.clone().unwrap_or_else(|| {
-                if success {
-                    "港湾 SQL 作业完成".into()
-                } else {
-                    "港湾 SQL 作业失败".into()
-                }
+                let status = if success { "完成" } else { "失败" };
+                format!("{APP_NAME} 作业{status}")
             }),
         }
     }

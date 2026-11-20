@@ -1,4 +1,4 @@
-# AGENTS.md · 港湾 SQL
+# AGENTS.md · 小海豚MysqlGui
 
 ## 验证与构建收尾
 

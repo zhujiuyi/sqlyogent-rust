@@ -10,6 +10,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 use tempfile::NamedTempFile;
 
+use crate::APP_NAME;
 use crate::database::transfer::{BackupDirectoryMode, DEFAULT_DUMP_CHUNK_ROWS};
 use crate::sql_encoding::SqlDumpCharset;
 
@@ -90,7 +91,7 @@ pub(super) fn prepare(
     for (selected, option) in [(replication.0, "主库日志"), (replication.1, "从库日志")] {
         if selected {
             notes.push(format!(
-                "旧作业启用了{option}选项。港湾 SQL 支持从该选项迁移全局读锁。"
+                "旧作业启用了{option}选项。{APP_NAME} 支持从该选项迁移全局读锁。"
             ));
         }
     }
@@ -101,8 +102,8 @@ pub(super) fn prepare(
         &mut definition,
         &mut notes,
     )?;
-    let parsed: JobFile =
-        serde_json::from_value(definition.clone()).map_err(|_| "无法生成有效的港湾 SQL 作业。")?;
+    let parsed: JobFile = serde_json::from_value(definition.clone())
+        .map_err(|_| format!("无法生成有效的 {APP_NAME} 作业。"))?;
     parsed.connection.validate()?;
     match &parsed.job {
         Job::Backup(backup) => backup.validate()?,

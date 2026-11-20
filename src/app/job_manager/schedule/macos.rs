@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use super::{Change, MonthDays, Months, Status, Trigger, calendar, checked, id, validated_runner};
 use crate::app::job_manager::{CATALOG_LIMIT, run_command, write_atomic};
-use harbor_sql::jobs::job_lock_path;
+use harbor_sql::{APP_NAME, jobs::job_lock_path};
 
 struct Agent {
     label: String,
@@ -103,7 +103,9 @@ pub(super) fn apply(change: Change, job: &Path) -> Result<Status, String> {
     let installed = agent.installed(job)?;
     let live = agent.live()?;
     if installed.is_none() && live.is_some() {
-        return Err("系统中已有同名调度，但找不到港湾 SQL 的调度文件。".into());
+        return Err(format!(
+            "系统中已有同名调度，但找不到 {APP_NAME} 的调度文件。"
+        ));
     }
 
     match change {
@@ -211,7 +213,7 @@ impl Agent {
                     fs::canonicalize(path).is_ok_and(|actual| actual == expected)
                 })
         }) {
-            return Err("无法确认 macOS 已加载的同名调度来自港湾 SQL。".into());
+            return Err(format!("无法确认 macOS 已加载的同名调度来自 {APP_NAME}。"));
         }
         if !live.idle {
             return Err("作业正在运行，或 macOS 暂时无法确认作业状态。请稍后重试。".into());

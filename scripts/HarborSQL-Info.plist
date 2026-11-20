@@ -2,12 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDisplayName</key>
+    <string>小海豚MysqlGui</string>
     <key>CFBundleExecutable</key>
     <string>harbor-sql</string>
+    <key>CFBundleIconFile</key>
+    <string>dolphin.icns</string>
     <key>CFBundleIdentifier</key>
     <string>io.harborsql.desktop</string>
     <key>CFBundleName</key>
-    <string>港湾 SQL</string>
+    <string>小海豚MysqlGui</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

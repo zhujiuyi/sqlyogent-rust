@@ -1,6 +1,6 @@
-# 港湾 SQL
+# 小海豚MysqlGui
 
-港湾 SQL（`sqlyogent-rust`）是用 Rust 和 egui 编写的 MySQL 与 MariaDB 桌面客户端，提供简体中文界面。项目独立开发，操作流程参考 SQLyog。左侧浏览数据库对象，右侧编写 SQL，下方查看查询结果和消息。
+小海豚MysqlGui（`sqlyogent-rust`）是用 Rust 和 egui 编写的 MySQL 与 MariaDB 桌面客户端，提供简体中文界面。项目独立开发，操作流程参考 SQLyog。左侧浏览数据库对象，右侧编写 SQL，下方查看查询结果和消息。
 
 ## 主要功能
 
@@ -36,10 +36,10 @@ rustup target add x86_64-pc-windows-msvc
 rustup target add aarch64-apple-darwin
 xcrun --sdk macosx --show-sdk-version
 sh scripts/package-macos.sh
-open 'dist/Harbor SQL.app'
+open 'dist/小海豚MysqlGui.app'
 ```
 
-脚本生成带临时签名的 `dist/Harbor SQL.app`，包内含桌面程序和独立作业程序。对外分发应用包时可使用 Apple Developer ID 签名并公证。 [Apple 签名与公证说明](https://developer.apple.com/developer-id/)
+脚本生成带临时签名的 `dist/小海豚MysqlGui.app`，包内含桌面程序和独立作业程序。对外分发应用包时可使用 Apple Developer ID 签名并公证。 [Apple 签名与公证说明](https://developer.apple.com/developer-id/)
 
 Apple 芯片目标已通过 Rust 交叉类型检查，应用包的构建和运行待 Apple 芯片 Mac 实机验证。
 
@@ -87,8 +87,8 @@ HTTP/HTTPS 隧道需先部署兼容的 PHP 隧道端点。每次请求使用独�
 在 macOS 上，从应用包内调用同一个命令行入口。
 
 ```sh
-'dist/Harbor SQL.app/Contents/MacOS/harbor-sql-job' check backup.json
-'dist/Harbor SQL.app/Contents/MacOS/harbor-sql-job' run backup.json
+'dist/小海豚MysqlGui.app/Contents/MacOS/harbor-sql-job' check backup.json
+'dist/小海豚MysqlGui.app/Contents/MacOS/harbor-sql-job' run backup.json
 ```
 
 `check` 校验作业定义，`run` 立即执行一次，`watch` 在前台按 `schedule` 循环执行。用 `--help` 查看迁移等命令。作业的相对路径以 JSON 文件所在目录为准，默认日志为同目录下的 `backup.json.log.jsonl`。

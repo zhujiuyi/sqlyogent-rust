@@ -5,6 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use harbor_sql::APP_NAME;
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 
@@ -73,7 +74,7 @@ struct ColumnSnapshot {
 pub(in crate::app) fn pick_layout() -> Option<PathBuf> {
     FileDialog::new()
         .set_title("打开查询布局")
-        .add_filter("港湾查询布局", &["query"])
+        .add_filter(format!("{APP_NAME} 查询布局"), &["query"])
         .pick_file()
 }
 
@@ -97,7 +98,7 @@ impl Builder {
         } else {
             FileDialog::new()
                 .set_title("保存查询布局")
-                .add_filter("港湾查询布局", &["query"])
+                .add_filter(format!("{APP_NAME} 查询布局"), &["query"])
                 .set_file_name("查询布局.query")
                 .save_file()
                 .map(|path| {
@@ -172,7 +173,9 @@ fn read_document(path: &Path) -> Result<Document, String> {
         .and_then(|value| value.to_str())
         .is_some_and(|value| value.eq_ignore_ascii_case("queryxml"))
     {
-        return Err("SQLyog 的 .queryxml 暂不支持导入。请选择港湾的 .query 文件。".into());
+        return Err(format!(
+            "SQLyog 的 .queryxml 暂不支持导入。请选择 {APP_NAME} 的 .query 文件。"
+        ));
     }
     let mut document: Document =
         serde_json::from_slice(&bytes).map_err(|error| format!("无法读取查询布局。{error}"))?;
