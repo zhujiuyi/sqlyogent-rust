@@ -189,7 +189,7 @@ impl Editor {
                 if let Some(status) = &self.status {
                     match status {
                         Ok(message) => ui.label(message),
-                        Err(error) => ui.colored_label(style::ERROR, error),
+                        Err(error) => ui.colored_label(style::error(), error),
                     };
                 }
                 ui.add_enabled_ui(self.pending.is_none(), |ui| self.form.buttons(ui))
@@ -221,7 +221,7 @@ impl Editor {
     fn show_job_impact(&self, ui: &mut egui::Ui) {
         if self.definition.job.discovery.is_some() {
             if let Some(impact) = self.discovery_impact() {
-                ui.colored_label(style::ERROR, impact);
+                ui.colored_label(style::error(), impact);
             }
             return;
         }
@@ -232,11 +232,11 @@ impl Editor {
             );
         }
         for impact in self.target_impacts() {
-            ui.colored_label(style::ERROR, impact);
+            ui.colored_label(style::error(), impact);
         }
         let source = self.source_impacts();
         if !source.is_empty() {
-            ui.colored_label(style::ERROR, "作业运行时将对以下源表执行导入后的操作。");
+            ui.colored_label(style::error(), "作业运行时将对以下源表执行导入后的操作。");
             for action in source {
                 ui.label(action);
             }
@@ -585,7 +585,7 @@ impl Editor {
                     && !table.table.trim().is_empty()
                 {
                     ui.colored_label(
-                        style::ERROR,
+                        style::error(),
                         format!("{impact}\n{}", target_name(&job.schema, &table.table)),
                     );
                 }

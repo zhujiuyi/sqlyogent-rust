@@ -124,33 +124,38 @@ impl EditorTools {
     pub fn show(&mut self, ui: &mut egui::Ui, ws: &mut Workspace) {
         let ctx = ui.ctx().clone();
         if let Some(panel) = self.panel {
-            ui.horizontal_wrapped(|ui| {
-                match panel {
-                    Panel::Find | Panel::Replace => {
-                        self.show_search(ui, ws, panel == Panel::Replace);
-                    }
-                    Panel::GoTo => {
-                        ui.label("行号");
-                        let maximum =
-                            ws.tab().sql.bytes().filter(|byte| *byte == b'\n').count() + 1;
-                        let input = ui.add(egui::DragValue::new(&mut self.line).range(1..=maximum));
-                        if std::mem::take(&mut self.focus) {
-                            input.request_focus();
+            style::pane(egui::Margin::symmetric(14, 7)).show(ui, |ui| {
+                style::paint_bottom_hairline(ui);
+                ui.set_min_width(ui.available_width());
+                ui.horizontal_wrapped(|ui| {
+                    match panel {
+                        Panel::Find | Panel::Replace => {
+                            self.show_search(ui, ws, panel == Panel::Replace);
                         }
-                        if ui.button("跳转").clicked()
-                            || (input.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)))
-                        {
-                            let offset = line_start(&ws.tab().sql, self.line.clamp(1, maximum));
-                            move_cursor(&ctx, ws, offset..offset);
-                            self.panel = None;
+                        Panel::GoTo => {
+                            ui.label("行号");
+                            let maximum =
+                                ws.tab().sql.bytes().filter(|byte| *byte == b'\n').count() + 1;
+                            let input =
+                                ui.add(egui::DragValue::new(&mut self.line).range(1..=maximum));
+                            if std::mem::take(&mut self.focus) {
+                                input.request_focus();
+                            }
+                            if ui.button("跳转").clicked()
+                                || (input.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)))
+                            {
+                                let offset = line_start(&ws.tab().sql, self.line.clamp(1, maximum));
+                                move_cursor(&ctx, ws, offset..offset);
+                                self.panel = None;
+                            }
                         }
                     }
-                }
-                if ui.small_button("关闭").clicked() {
-                    self.panel = None;
-                    self.invalidate_wrap();
-                    ws.focus_request = true;
-                }
+                    if ui.small_button("关闭").clicked() {
+                        self.panel = None;
+                        self.invalidate_wrap();
+                        ws.focus_request = true;
+                    }
+                });
             });
         }
         self.show_wrap(ui, ws);

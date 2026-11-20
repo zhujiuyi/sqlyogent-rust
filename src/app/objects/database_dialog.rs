@@ -55,7 +55,7 @@ impl ContentsDialog {
         let mut close = false;
         let modal =
             crate::app::style::modal(ctx, egui::Id::new("database-contents")).show(ctx, |ui| {
-                ui.set_min_width((screen.width() - 64.0).clamp(360.0, 620.0));
+                ui.set_width((screen.width() - 64.0).clamp(400.0, 620.0));
                 let (title, effect, confirm) = match self.action {
                     DatabaseContentsAction::Drop => (
                         "清空数据库",
@@ -68,31 +68,48 @@ impl ContentsDialog {
                         "确认截断所选表",
                     ),
                 };
-                ui.heading(title);
-                ui.monospace(&self.schema);
-                ui.label(effect);
-                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.heading(title);
+                    ui.add_space(6.0);
+                    style::badge(ui, &self.schema, style::error(), style::error_soft());
+                });
+                ui.label(egui::RichText::new(effect).small().color(style::muted()));
+                ui.add_space(8.0);
                 if self.applying {
                     if ws.busy() {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label("正在依次处理所选对象…");
+                        style::subtle_card(egui::Margin::same(14)).show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label("正在依次处理所选对象…");
+                            });
                         });
                         return;
                     }
                     if let Some(result) = &ws.database_contents_result {
-                        ui.label(format!(
-                            "已处理 {} / {} 个对象。",
-                            result.completed, result.total
-                        ));
+                        style::banner(
+                            ui,
+                            &format!("已处理 {} / {} 个对象。", result.completed, result.total),
+                            if result.error.is_some() {
+                                style::warning()
+                            } else {
+                                style::success()
+                            },
+                            if result.error.is_some() {
+                                style::panel()
+                            } else {
+                                style::success_soft()
+                            },
+                        );
                         if let Some(error) = &result.error {
-                            ui.colored_label(style::ERROR, error);
+                            ui.add_space(6.0);
+                            style::banner(ui, error, style::error(), style::error_soft());
                         }
                     } else {
-                        ui.colored_label(style::ERROR, &ws.status);
+                        style::banner(ui, &ws.status, style::error(), style::error_soft());
                     }
-                    ui.horizontal(|ui| {
-                        close = ui.button("关闭").clicked();
+                    style::dialog_footer(ui, |ui| {
+                        close = ui.add(style::primary("关闭")).clicked();
                         if ws
                             .database_contents_result
                             .as_ref()
@@ -104,41 +121,61 @@ impl ContentsDialog {
                     return;
                 }
                 if let Some(plan) = &self.confirmed_plan {
-                    ui.label(format!(
-                        "待处理 {} 个对象。此操作无法撤销。",
-                        plan.object_count()
-                    ));
+                    style::banner(
+                        ui,
+                        &format!("待处理 {} 个对象。此操作无法撤销。", plan.object_count()),
+                        style::error(),
+                        style::error_soft(),
+                    );
                     if plan.suspend_foreign_key_checks {
-                        ui.label("请暂停所选表的写入。执行时会在单独的连接内临时关闭外键检查。");
-                    }
-                    if self.action == DatabaseContentsAction::Drop {
+                        ui.add_space(4.0);
                         ui.label(
-                            "删除表会一并删除它的触发器，也可能影响引用所选对象的视图或存储程序。",
+                            egui::RichText::new(
+                                "请暂停所选表的写入。执行时会在单独的连接内临时关闭外键检查。",
+                            )
+                            .small()
+                            .color(style::muted()),
                         );
                     }
-                    egui::ScrollArea::both()
-                        .id_salt("contents-confirmation")
-                        .max_height((screen.height() * 0.48).min(320.0))
-                        .show(ui, |ui| {
-                            for statement in plan.statements() {
-                                ui.monospace(statement);
-                            }
-                        });
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        submit = ui
-                            .add_enabled(!ws.busy() && ws.server.is_some(), style::primary(confirm))
-                            .clicked();
+                    if self.action == DatabaseContentsAction::Drop {
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(
+                                "删除表会一并删除它的触发器，也可能影响引用所选对象的视图或存储程序。",
+                            )
+                            .small()
+                            .color(style::muted()),
+                        );
+                    }
+                    ui.add_space(8.0);
+                    style::section_card(ui, "将要执行的 SQL", |ui| {
+                        egui::ScrollArea::both()
+                            .id_salt("contents-confirmation")
+                            .auto_shrink([false, false])
+                            .max_height((screen.height() * 0.44).min(300.0))
+                            .show(ui, |ui| {
+                                for statement in plan.statements() {
+                                    ui.monospace(statement);
+                                }
+                            });
+                    });
+                    style::dialog_footer(ui, |ui| {
+                        let ready = !ws.busy() && ws.server.is_some();
+                        submit = ui.add_enabled(ready, style::danger(confirm)).clicked();
                         if ui.button("返回选择").clicked() {
                             self.confirmed_plan = None;
                         }
                     });
                     return;
                 }
+                let mut candidate_plan = None;
                 if ws.busy() {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.label("正在读取可处理的对象…");
+                    style::subtle_card(egui::Margin::same(14)).show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label("正在读取可处理的对象…");
+                        });
                     });
                 } else if let Some(contents) = ws
                     .database_contents
@@ -162,9 +199,13 @@ impl ContentsDialog {
                         self.selection.retain(|object| available.contains(object));
                     }
                     if objects.is_empty() {
-                        ui.label("没有可处理的对象。");
+                        style::subtle_card(egui::Margin::same(14)).show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.label(
+                                egui::RichText::new("没有可处理的对象。").color(style::muted()),
+                            );
+                        });
                     } else {
-                        ui.label("显示当前账号可见的对象。");
                         self.pick_objects(ui, &objects, screen.height());
                         let candidate =
                             contents
@@ -184,22 +225,28 @@ impl ContentsDialog {
                         if !self.selection.is_empty()
                             && let Err(error) = &candidate
                         {
-                            ui.colored_label(style::ERROR, error);
+                            ui.add_space(6.0);
+                            style::banner(ui, error, style::error(), style::error_soft());
                         }
-                        if ui
-                            .add_enabled(candidate.is_ok(), style::primary("检查操作范围"))
-                            .clicked()
-                        {
-                            self.confirmed_plan = candidate.ok();
-                        }
+                        candidate_plan = candidate.ok();
                     }
                 } else {
-                    ui.colored_label(style::ERROR, &ws.status);
+                    style::banner(ui, &ws.status, style::error(), style::error_soft());
+                    ui.add_space(6.0);
                     reload = ui
                         .add_enabled(ws.server.is_some(), egui::Button::new("重新读取对象"))
                         .clicked();
                 }
-                close = ui.button("关闭").clicked();
+                style::dialog_footer(ui, |ui| {
+                    let ready = candidate_plan.is_some();
+                    if ui
+                        .add_enabled(ready, style::primary_enabled(ready, "检查操作范围"))
+                        .clicked()
+                    {
+                        self.confirmed_plan = candidate_plan;
+                    }
+                    close = ui.button("关闭").clicked();
+                });
             });
 
         if reload {
@@ -220,60 +267,74 @@ impl ContentsDialog {
     }
 
     fn pick_objects(&mut self, ui: &mut egui::Ui, objects: &[&DbObject], height: f32) {
-        ui.horizontal(|ui| {
-            if ui
-                .button(format!("选中全部 {} 项", objects.len()))
-                .clicked()
-            {
-                self.selection
-                    .extend(objects.iter().map(|&object| object.clone()));
-            }
-            if ui.button("清除选择").clicked() {
-                self.selection.clear();
-            }
-            ui.label(format!("已选 {} 项", self.selection.len()));
-        });
-        ui.add(
-            TextEdit::singleline(&mut self.filter)
-                .desired_width(270.0)
-                .hint_text("按对象名称筛选"),
-        );
-        let filter = self.filter.trim().to_lowercase();
-        let filtered = objects
-            .iter()
-            .copied()
-            .filter(|object| filter.is_empty() || object.name.to_lowercase().contains(&filter))
-            .collect::<Vec<_>>();
-        if filtered.is_empty() {
-            ui.label("没有匹配的对象。");
-            return;
-        }
-        egui::ScrollArea::vertical()
-            .id_salt("contents-objects")
-            .max_height((height * 0.40).min(280.0))
-            .show_rows(
-                ui,
-                ui.spacing().interact_size.y,
-                filtered.len(),
-                |ui, rows| {
-                    for index in rows {
-                        let object = filtered[index];
-                        let label = format!("{}  ·  {}", kind_label(object.kind), object.name);
-                        let mut selected = self.selection.contains(object);
-                        let changed = ui
-                            .push_id(object, |ui| ui.checkbox(&mut selected, label))
-                            .inner
-                            .changed();
-                        if changed {
-                            if selected {
-                                self.selection.insert(object.clone());
-                            } else {
-                                self.selection.remove(object);
-                            }
-                        }
+        let count_badge = format!("已选 {} / {}", self.selection.len(), objects.len());
+        style::section_card_with_header(
+            ui,
+            "要处理的对象（当前账号可见）",
+            |ui| {
+                style::badge(ui, count_badge, style::accent(), style::accent_soft());
+            },
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(
+                        TextEdit::singleline(&mut self.filter)
+                            .desired_width((ui.available_width() - 190.0).max(150.0))
+                            .hint_text("按对象名称筛选"),
+                    );
+                    if ui
+                        .button(format!("选中全部 {} 项", objects.len()))
+                        .clicked()
+                    {
+                        self.selection
+                            .extend(objects.iter().map(|&object| object.clone()));
                     }
-                },
-            );
+                    if ui.button("清除选择").clicked() {
+                        self.selection.clear();
+                    }
+                });
+                ui.add_space(6.0);
+                let filter = self.filter.trim().to_lowercase();
+                let filtered = objects
+                    .iter()
+                    .copied()
+                    .filter(|object| {
+                        filter.is_empty() || object.name.to_lowercase().contains(&filter)
+                    })
+                    .collect::<Vec<_>>();
+                if filtered.is_empty() {
+                    ui.label(egui::RichText::new("没有匹配的对象。").color(style::muted()));
+                    return;
+                }
+                egui::ScrollArea::vertical()
+                    .id_salt("contents-objects")
+                    .auto_shrink([false, false])
+                    .max_height((height * 0.40).min(280.0))
+                    .show_rows(
+                        ui,
+                        ui.spacing().interact_size.y,
+                        filtered.len(),
+                        |ui, rows| {
+                            for index in rows {
+                                let object = filtered[index];
+                                let label =
+                                    format!("{}  ·  {}", kind_label(object.kind), object.name);
+                                let mut selected = self.selection.contains(object);
+                                let changed = ui
+                                    .push_id(object, |ui| ui.checkbox(&mut selected, label))
+                                    .inner
+                                    .changed();
+                                if changed {
+                                    if selected {
+                                        self.selection.insert(object.clone());
+                                    } else {
+                                        self.selection.remove(object);
+                                    }
+                                }
+                            }
+                        },
+                    );
+            },
+        );
     }
 }
 
@@ -294,7 +355,7 @@ pub(super) fn default_fields(ui: &mut egui::Ui, form: &mut Plan, ws: &Workspace,
             "{scope}  {} / {}",
             defaults.charset, defaults.collation
         ))
-        .color(style::MUTED),
+        .color(style::muted()),
     );
 
     let previous = form.second.clone();

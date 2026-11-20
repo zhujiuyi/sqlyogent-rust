@@ -59,76 +59,86 @@ impl Dialog {
         let mut copy = false;
         let mut cancel = false;
         let response = style::modal(ctx, egui::Id::new("result-clipboard")).show(ctx, |ui| {
-            ui.set_width((ctx.content_rect().width() - 60.0).clamp(300.0, 424.0));
-            ui.heading(self.title);
-            ui.label(
-                egui::RichText::new(format!(
-                    "{} 行 × {} 列",
-                    self.rows.len(),
-                    self.columns.len()
-                ))
-                .small()
-                .color(style::MUTED),
-            );
-            ui.separator();
+            ui.set_width((ctx.content_rect().width() - 60.0).clamp(360.0, 480.0));
+            ui.horizontal(|ui| {
+                ui.heading(self.title);
+                ui.add_space(6.0);
+                style::badge(
+                    ui,
+                    format!("{} 行 × {} 列", self.rows.len(), self.columns.len()),
+                    style::accent(),
+                    style::accent_soft(),
+                );
+            });
+            ui.add_space(8.0);
 
             let options = &mut self.options;
-            ui.horizontal_wrapped(|ui| {
-                ui.radio_value(&mut options.fixed_width, false, "分隔字段");
-                ui.radio_value(&mut options.fixed_width, true, "固定宽度");
-                if ui.button("应用 Excel 格式").clicked() {
-                    apply_excel_format(options);
-                }
-            });
-            if options.fixed_width {
+            style::section_card(ui, "格式设置", |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label("定宽依据");
-                    ui.radio_value(&mut options.declared_widths, false, "按内容");
-                    ui.add_enabled_ui(declared_widths, |ui| {
-                        ui.radio_value(&mut options.declared_widths, true, "按声明宽度");
-                    })
-                    .response
-                    .on_disabled_hover_text("所选结果列未提供完整的声明宽度");
+                    ui.radio_value(&mut options.fixed_width, false, "分隔字段");
+                    ui.radio_value(&mut options.fixed_width, true, "固定宽度");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("应用 Excel 格式").clicked() {
+                            apply_excel_format(options);
+                        }
+                    });
                 });
-            }
-
-            egui::Grid::new("result-clipboard-settings")
-                .num_columns(2)
-                .show(ui, |ui| {
-                    if !options.fixed_width {
-                        field(ui, "字段分隔符", &mut options.field_end);
-                        field(ui, "封闭符", &mut options.enclosure);
-                    }
-                    field(ui, "行分隔符", &mut options.row_end);
-                    field(ui, "转义符", &mut options.escape);
-                    if !options.fixed_width {
-                        field(ui, "NULL 表示", &mut options.null);
-                    }
-                });
-            ui.horizontal_wrapped(|ui| {
-                ui.checkbox(&mut options.headers, "首行复制字段名");
-                if !options.fixed_width {
-                    ui.add_enabled_ui(!options.enclosure.is_empty(), |ui| {
-                        ui.checkbox(&mut options.enclose_all, "封闭全部非 NULL 字段");
+                if options.fixed_width {
+                    ui.add_space(4.0);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(egui::RichText::new("定宽依据").color(style::muted()));
+                        ui.radio_value(&mut options.declared_widths, false, "按内容");
+                        ui.add_enabled_ui(declared_widths, |ui| {
+                            ui.radio_value(&mut options.declared_widths, true, "按声明宽度");
+                        })
+                        .response
+                        .on_disabled_hover_text("所选结果列未提供完整的声明宽度");
                     });
                 }
+                ui.add_space(6.0);
+                egui::Grid::new("result-clipboard-settings")
+                    .num_columns(2)
+                    .spacing([14.0, 7.0])
+                    .show(ui, |ui| {
+                        if !options.fixed_width {
+                            field(ui, "字段分隔符", &mut options.field_end);
+                            field(ui, "封闭符", &mut options.enclosure);
+                        }
+                        field(ui, "行分隔符", &mut options.row_end);
+                        field(ui, "转义符", &mut options.escape);
+                        if !options.fixed_width {
+                            field(ui, "NULL 表示", &mut options.null);
+                        }
+                    });
+                ui.add_space(6.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.checkbox(&mut options.headers, "首行复制字段名");
+                    if !options.fixed_width {
+                        ui.add_enabled_ui(!options.enclosure.is_empty(), |ui| {
+                            ui.checkbox(&mut options.enclose_all, "封闭全部非 NULL 字段");
+                        });
+                    }
+                });
+                let hint = if options.fixed_width {
+                    "按 UTF-8 字节数补齐空格，NULL 留空。"
+                } else {
+                    r"分隔符支持 \t、\r、\n 和 \\。留空则省略该项。"
+                };
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(hint).small().color(style::muted()));
             });
-            let hint = if options.fixed_width {
-                "按 UTF-8 字节数补齐空格，NULL 留空。"
-            } else {
-                r"分隔符支持 \t、\r、\n 和 \\。留空则省略该项。"
-            };
-            ui.colored_label(style::MUTED, hint);
             let validation = options.validate_clipboard();
             if let Err(error) = &validation {
-                ui.colored_label(style::ERROR, error);
+                ui.add_space(6.0);
+                style::banner(ui, error, style::error(), style::error_soft());
             } else if let Some(error) = &self.error {
-                ui.colored_label(style::ERROR, error);
+                ui.add_space(6.0);
+                style::banner(ui, error, style::error(), style::error_soft());
             }
-            ui.separator();
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let ok = validation.is_ok();
+            style::dialog_footer(ui, |ui| {
                 copy = ui
-                    .add_enabled(validation.is_ok(), style::primary("复制到剪贴板"))
+                    .add_enabled(ok, style::primary_enabled(ok, "复制到剪贴板"))
                     .clicked();
                 cancel = ui.button("取消").clicked();
             });

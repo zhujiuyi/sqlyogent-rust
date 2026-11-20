@@ -70,7 +70,11 @@ fn main() -> eframe::Result {
     eframe::run_native(
         APP_NAME,
         options,
-        Box::new(|cc| Ok(Box::new(app::Workbench::new(&cc.egui_ctx)))),
+        Box::new(|cc| {
+            let mut workbench = app::Workbench::new(&cc.egui_ctx);
+            workbench.open_startup_connection();
+            Ok(Box::new(workbench))
+        }),
     )
 }
 

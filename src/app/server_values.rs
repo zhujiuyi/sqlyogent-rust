@@ -89,7 +89,7 @@ impl Dialog {
                     ui.small("会话范围为本次 HTTP 请求。");
                 }
                 if let Some(error) = &self.error {
-                    ui.colored_label(style::ERROR, error);
+                    ui.colored_label(style::error(), error);
                     if ui.button("查看错误详情…").clicked() {
                         workspace.error_dialog =
                             Some(Box::new(ErrorDetails::new(self.view.sql(), error)));
@@ -160,6 +160,9 @@ impl Dialog {
                             });
                         });
                 }
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     if ui
                         .add_enabled(ready && !self.pending, egui::Button::new("刷新"))
@@ -174,7 +177,10 @@ impl Dialog {
                     {
                         self.details = true;
                     }
-                    ui.button("关闭").clicked()
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.button("关闭").clicked()
+                    })
+                    .inner
                 })
                 .inner
             });

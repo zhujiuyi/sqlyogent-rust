@@ -169,7 +169,7 @@ pub(super) fn metadata_fields(
         });
         if !valid_metadata_locator(locator) {
             ui.colored_label(
-                style::MUTED,
+                style::muted(),
                 "请填写准确的源表名。目录和架构请按驱动定义填写。",
             );
         }
@@ -1599,7 +1599,7 @@ pub(super) fn dialog(
                     && let Some(object) = &object
                 {
                     ui.colored_label(
-                        style::WARNING,
+                        style::warning(),
                         format!("{impact}\n{}", target_name(&object.schema, &object.name)),
                     );
                 }
@@ -1609,7 +1609,7 @@ pub(super) fn dialog(
                     && import.target.is_none()
                 {
                     ui.colored_label(
-                        style::MUTED,
+                        style::muted(),
                         if import.choose_table && import.tables.is_none() {
                             "正在读取目标数据库的表…"
                         } else {
@@ -1645,7 +1645,7 @@ pub(super) fn dialog(
                     form_section(ui, "源数据", |ui| {
                         if let Some(action) = &import.after_import {
                             ui.colored_label(
-                                style::WARNING,
+                                style::warning(),
                                 format!("导入后的源表操作 · {}", source_action_effect(action)),
                             );
                         }
@@ -1677,12 +1677,12 @@ pub(super) fn dialog(
                             });
                             if !can_choose_conflict {
                                 ui.colored_label(
-                                    style::MUTED,
+                                    style::muted(),
                                     "无法核对目标表定义，遇到冲突时结束导入。",
                                 );
                             }
                             if import.conflict == OdbcConflict::Replace {
-                                ui.colored_label(style::WARNING, REPLACE_WARNING);
+                                ui.colored_label(style::warning(), REPLACE_WARNING);
                             }
                         }
                     });
@@ -1724,7 +1724,7 @@ pub(super) fn dialog(
                                 }
                                 Err(error) => {
                                     metadata_valid = false;
-                                    ui.colored_label(style::ERROR, error);
+                                    ui.colored_label(style::error(), error);
                                 }
                             }
                             let sql_valid =
@@ -1757,7 +1757,7 @@ pub(super) fn dialog(
         });
         ui.separator();
         if let Some(error) = &import.error {
-            ui.add(egui::Label::new(egui::RichText::new(error).color(style::ERROR)).truncate())
+            ui.add(egui::Label::new(egui::RichText::new(error).color(style::error())).truncate())
                 .on_hover_text(error);
         }
         right_aligned_row(ui, |ui| {
@@ -1896,7 +1896,7 @@ pub(super) fn create_sql_editor(
             None => match generate() {
                 Ok(sql) => sql,
                 Err(error) => {
-                    ui.colored_label(style::ERROR, error);
+                    ui.colored_label(style::error(), error);
                     return;
                 }
             },
@@ -1920,7 +1920,7 @@ pub(super) fn create_sql_editor(
             ui.label("导入时使用编辑后的建表 SQL。");
         }
         if let Some(Err(error)) = &validity {
-            ui.colored_label(style::ERROR, error);
+            ui.colored_label(style::error(), error);
         }
     });
     custom
@@ -2007,7 +2007,7 @@ fn new_column_fields(ui: &mut egui::Ui, sources: &[SourceColumn], columns: &mut 
 
 fn source_name(ui: &mut egui::Ui, column: &SourceColumn, index: usize, width: f32) {
     if column.name.is_empty() {
-        ui.colored_label(style::MUTED, format!("未命名列 {}", index + 1));
+        ui.colored_label(style::muted(), format!("未命名列 {}", index + 1));
     } else {
         ui.add_sized(
             [width, ui.spacing().interact_size.y],

@@ -72,8 +72,8 @@ impl Builder {
                         });
                         if let Some(status) = &self.status {
                             match status {
-                                Ok(message) => ui.colored_label(style::SUCCESS, message),
-                                Err(message) => ui.colored_label(style::ERROR, message),
+                                Ok(message) => ui.colored_label(style::success(), message),
+                                Err(message) => ui.colored_label(style::error(), message),
                             };
                         }
                         if self.metadata.loading() {
@@ -83,7 +83,7 @@ impl Builder {
                             });
                         } else if self.metadata.failed(&self.query, workspace) {
                             ui.horizontal_wrapped(|ui| {
-                                ui.colored_label(style::WARNING, "部分表、列或外键信息无法读取。");
+                                ui.colored_label(style::warning(), "部分表、列或外键信息无法读取。");
                                 if ui.button("重试").clicked() {
                                     self.metadata.retry();
                                 }
@@ -159,7 +159,7 @@ impl Builder {
                         inspector.show(ui, |ui| {
                             ui.label(RichText::new("实时 SQL").strong());
                             egui::Frame::new()
-                                .fill(style::PANEL)
+                                .fill(style::panel())
                                 .corner_radius(6)
                                 .inner_margin(egui::Margin::same(4))
                                 .show(ui, |ui| {
@@ -172,9 +172,9 @@ impl Builder {
                                             Ok(sql) => appearance::sql_preview(ui, sql, 3),
                                             Err(error) => {
                                                 let color = if self.query.sources.is_empty() {
-                                                    style::MUTED
+                                                    style::muted()
                                                 } else {
-                                                    style::ERROR
+                                                    style::error()
                                                 };
                                                 ui.colored_label(color, *error);
                                             }
@@ -465,7 +465,7 @@ impl FieldDropTargets {
             ui.painter().with_clip_rect(clip).hline(
                 clip.x_range(),
                 y.max(clip.top() + 1.0),
-                egui::Stroke::new(2.0_f32, style::ACCENT),
+                egui::Stroke::new(2.0_f32, style::accent()),
             );
             ui.ctx().set_cursor_icon(egui::CursorIcon::Copy);
         }
@@ -513,7 +513,7 @@ fn show_fields(ui: &mut egui::Ui, query: &mut Query, choices: &[Choice]) -> Fiel
         } else {
             "没有指定输出字段时返回分组字段和记录数。"
         };
-        ui.colored_label(style::MUTED, hint);
+        ui.colored_label(style::muted(), hint);
     }
 
     let count = query.fields.len();
@@ -713,7 +713,7 @@ fn target_choices(builder: &Query, columns: &[Choice]) -> Vec<TargetChoice> {
 fn show_filters(ui: &mut egui::Ui, groups: &mut Vec<Vec<Predicate>>, choices: &[TargetChoice]) {
     if !groups.is_empty() {
         ui.colored_label(
-            style::MUTED,
+            style::muted(),
             "同一组内的条件用 AND 连接，不同组之间用 OR 连接。WHERE 和 HAVING 分别组合。",
         );
     }
@@ -791,7 +791,7 @@ fn show_predicate(
                             .iter()
                             .any(|choice| choice.target == *target && choice.aggregate)
                     });
-                    ui.colored_label(style::MUTED, FilterPhase::inferred(aggregate).label());
+                    ui.colored_label(style::muted(), FilterPhase::inferred(aggregate).label());
                     egui::ComboBox::from_id_salt("comparison")
                         .selected_text(comparison_sql(*operator))
                         .width(80.0)

@@ -141,11 +141,11 @@ pub(super) struct SqlColors {
 impl Default for SqlColors {
     fn default() -> Self {
         Self {
-            normal: [29, 42, 53],
-            keyword: [21, 103, 105],
-            function: [33, 91, 152],
-            string: [153, 68, 30],
-            comment: [83, 103, 116],
+            normal: [22, 32, 48],
+            keyword: [22, 96, 232],
+            function: [8, 127, 148],
+            string: [180, 74, 30],
+            comment: [115, 130, 150],
         }
     }
 }
@@ -622,21 +622,35 @@ impl Dialog {
         let mut save = false;
         let mut cancel = false;
         let response = style::modal(ctx, egui::Id::new("preferences")).show(ctx, |ui| {
-            ui.set_width((ctx.content_rect().width() - 48.0).clamp(1.0, 560.0));
+            ui.set_width((ctx.content_rect().width() - 48.0).clamp(1.0, 580.0));
             ui.heading("偏好设置");
-            style::pane(egui::Margin::symmetric(8, 6))
-                .corner_radius(8.0)
+            ui.add_space(6.0);
+            style::chrome_bar(egui::Margin::symmetric(6, 4))
+                .corner_radius(9.0)
+                .stroke(egui::Stroke::new(1.0_f32, style::border_subtle()))
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     ui.horizontal_wrapped(|ui| {
-                        ui.selectable_value(&mut self.page, Page::General, "常规");
-                        ui.selectable_value(&mut self.page, Page::Editor, "字体与编辑器");
-                        ui.selectable_value(&mut self.page, Page::Formatter, "SQL 格式化");
-                        ui.selectable_value(&mut self.page, Page::Profiler, "查询分析");
-                        ui.selectable_value(&mut self.page, Page::Design, "设计工具");
+                        for (page, label) in [
+                            (Page::General, "常规"),
+                            (Page::Editor, "字体与编辑器"),
+                            (Page::Formatter, "SQL 格式化"),
+                            (Page::Profiler, "查询分析"),
+                            (Page::Design, "设计工具"),
+                        ] {
+                            let selected = self.page == page;
+                            let text = if selected {
+                                egui::RichText::new(label).strong().color(style::accent())
+                            } else {
+                                egui::RichText::new(label).color(style::muted())
+                            };
+                            if style::tab_button(ui, selected, text, true).clicked() {
+                                self.page = page;
+                            }
+                        }
                     });
                 });
-            ui.add_space(4.0);
+            ui.add_space(8.0);
             let max_height = (ctx.content_rect().height() - 190.0).max(155.0);
             egui::ScrollArea::vertical()
                 .max_height(max_height)
@@ -655,7 +669,7 @@ impl Dialog {
                 });
 
             if let Some(error) = &self.error {
-                ui.colored_label(style::ERROR, error);
+                ui.colored_label(style::error(), error);
             }
 
             ui.separator();
@@ -926,14 +940,17 @@ fn formatter_fields(ui: &mut egui::Ui, draft: &mut Preferences) {
     ui.strong("预览");
     let sample = "SELECT o.id AS 订单号, o.total AS 金额 FROM orders o, customers c WHERE o.customer_id = c.id GROUP BY o.id, o.total ORDER BY o.id;";
     let preview = format_sql_with_settings(sample, 0..sample.len(), *settings, (false, false));
-    let layout = style::sql_galley(
-        ui,
-        &preview,
-        ui.available_width(),
-        draft.editor,
-        (false, false),
-    );
-    ui.label(layout);
+    style::subtle_card(egui::Margin::same(10)).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        let layout = style::sql_galley(
+            ui,
+            &preview,
+            ui.available_width(),
+            draft.editor,
+            (false, false),
+        );
+        ui.label(layout);
+    });
 }
 
 fn editor_fields(
@@ -996,8 +1013,12 @@ fn editor_fields(
     .on_hover_text("显示、复制和保存时应用此设置。执行时使用编辑器中的原始 SQL。");
 
     let example = "-- 查询示例\nselect\tconcat('订单 ', 编号) from 订单;";
-    let layout = style::sql_galley(ui, example, ui.available_width(), *draft, (false, false));
-    ui.label(layout);
+    ui.add_space(4.0);
+    style::subtle_card(egui::Margin::same(10)).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        let layout = style::sql_galley(ui, example, ui.available_width(), *draft, (false, false));
+        ui.label(layout);
+    });
 }
 
 fn font_row(

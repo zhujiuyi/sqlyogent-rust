@@ -8,7 +8,7 @@ mod schema_defaults_test;
 use std::collections::BTreeSet;
 use std::io::Write;
 
-use eframe::egui::{self, Color32, RichText, TextEdit};
+use eframe::egui::{self, RichText, TextEdit};
 use rfd::FileDialog;
 
 use crate::database::{
@@ -223,11 +223,26 @@ pub(super) fn dialog(
     crate::app::style::modal(ctx, egui::Id::new("schema-comparison")).show(ctx, |ui| {
         ui.set_width((screen.width() - 70.0).clamp(540.0, 1_060.0));
         ui.heading("结构同步");
+        ui.add_space(6.0);
         let before = (compare.source.clone(), compare.target.clone());
         ui.add_enabled_ui(!reading && !applying, |ui| {
-            side_fields(ui, ("Source", "源端"), &mut compare.source, workspaces);
-            side_fields(ui, ("Target", "目标端"), &mut compare.target, workspaces);
+            style::split_two_columns(
+                ui,
+                0.5,
+                12.0,
+                |ui| {
+                    style::section_card(ui, "源端（基准结构）", |ui| {
+                        side_fields(ui, ("Source", "源端"), &mut compare.source, workspaces);
+                    });
+                },
+                |ui| {
+                    style::section_card(ui, "目标端（待同步）", |ui| {
+                        side_fields(ui, ("Target", "目标端"), &mut compare.target, workspaces);
+                    });
+                },
+            );
         });
+        ui.add_space(8.0);
         if before != (compare.source.clone(), compare.target.clone()) {
             compare.requested = false;
             compare.reset_results();
@@ -240,8 +255,9 @@ pub(super) fn dialog(
                     })
             });
         ui.horizontal(|ui| {
+            let can_compare = ready && !reading && !applying;
             start = ui
-                .add_enabled(ready && !reading && !applying, style::primary("比较"))
+                .add_enabled(can_compare, style::primary_enabled(can_compare, "比较"))
                 .clicked();
             if reading {
                 ui.spinner();
@@ -265,7 +281,7 @@ pub(super) fn dialog(
             application_view(ui, application, target, screen.height());
         } else if compare.requested && !reading && !start {
             let (Some(source), Some(target)) = (source, target) else {
-                ui.colored_label(style::ERROR, "所选连接已关闭，请重新选择。");
+                ui.colored_label(style::error(), "所选连接已关闭，请重新选择。");
                 return;
             };
             match (
@@ -276,10 +292,10 @@ pub(super) fn dialog(
                     stage = differences(ui, compare, left, right, &target.label, screen.height());
                 }
                 (None, _) => {
-                    ui.colored_label(style::ERROR, &source.status);
+                    ui.colored_label(style::error(), &source.status);
                 }
                 _ => {
-                    ui.colored_label(style::ERROR, &target.status);
+                    ui.colored_label(style::error(), &target.status);
                 }
             }
         }
@@ -380,7 +396,7 @@ fn differences(
 ) -> Option<Next> {
     if left.omitted_objects != 0 || right.omitted_objects != 0 {
         ui.colored_label(
-            style::ERROR,
+            style::error(),
             format!(
                 "对象清单不完整 · 源端省略 {} 个对象，目标端省略 {} 个对象",
                 left.omitted_objects, right.omitted_objects
@@ -430,7 +446,7 @@ fn differences(
             ui.label(format!("目标端 {} / {}", target.charset, target.collation));
         });
     } else if compare_defaults && (left.defaults.is_none() || right.defaults.is_none()) {
-        ui.colored_label(style::MUTED, "数据库默认字符集和排序规则读取不完整。");
+        ui.colored_label(style::muted(), "数据库默认字符集和排序规则读取不完整。");
     }
     let pattern = NamePattern::new(&compare.pattern);
     let visible = items
@@ -517,10 +533,10 @@ fn differences(
                         checkbox.on_disabled_hover_text(reason);
                     }
                     let color = match item.difference {
-                        Difference::Changed => Color32::from_rgb(62, 102, 173),
-                        Difference::SourceOnly => Color32::from_rgb(46, 110, 73),
-                        Difference::Unavailable => style::ERROR,
-                        _ => style::MUTED,
+                        Difference::Changed => style::accent(),
+                        Difference::SourceOnly => style::success(),
+                        Difference::Unavailable => style::error(),
+                        _ => style::muted(),
                     };
                     let label = RichText::new(format!(
                         "{}  ·  {} / {}",
@@ -559,7 +575,7 @@ fn differences(
             );
         });
         if let Some(reason) = item.problem() {
-            ui.colored_label(style::ERROR, reason);
+            ui.colored_label(style::error(), reason);
         }
     }
 
@@ -611,7 +627,7 @@ fn preview(
                 .max_height((height * 0.44).clamp(120.0, 410.0))
                 .show(ui, |ui| {
                     for issue in issues {
-                        ui.colored_label(style::ERROR, issue);
+                        ui.colored_label(style::error(), issue);
                     }
                 });
             return None;
@@ -641,7 +657,7 @@ fn preview(
                     .max_height(84.0)
                     .show(ui, |ui| {
                         for change in &plan.review {
-                            ui.colored_label(style::ERROR, change);
+                            ui.colored_label(style::error(), change);
                         }
                     });
             });
@@ -677,7 +693,7 @@ fn preview(
                 ui.label(format!("已保存到 {path}"));
             }
             Err(error) => {
-                ui.colored_label(style::ERROR, error);
+                ui.colored_label(style::error(), error);
             }
         }
     }
@@ -725,7 +741,7 @@ fn application_view(
             }
         }
         Application::Finished(Err(error)) => {
-            ui.colored_label(style::ERROR, error);
+            ui.colored_label(style::error(), error);
         }
         Application::Finished(Ok(result)) => {
             let label = match result.stopped {
@@ -744,7 +760,7 @@ fn application_view(
             }) = &result.stopped
             {
                 ui.colored_label(
-                    style::ERROR,
+                    style::error(),
                     format!("第 {} 条：{error}", result.completed + 1),
                 );
                 if *uncertain {

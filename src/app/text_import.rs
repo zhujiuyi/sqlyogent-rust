@@ -620,7 +620,7 @@ impl LocalOptions {
         }
         let selected = self.columns.iter().any(|column| column.included);
         if !selected {
-            ui.colored_label(style::ERROR, "请至少勾选一个目标列。");
+            ui.colored_label(style::error(), "请至少勾选一个目标列。");
         }
         selected
     }
@@ -633,7 +633,7 @@ fn mapping_settings(
     fields: &[ColumnInfo],
 ) -> bool {
     ui.colored_label(
-        style::MUTED,
+        style::muted(),
         format!("{} 行数据 · 文件字段 → 目标列", data.rows.len()),
     );
     egui::ScrollArea::vertical()
@@ -697,7 +697,7 @@ fn mapping_settings(
     }
     if missing || duplicate || used.is_empty() {
         ui.colored_label(
-            style::ERROR,
+            style::error(),
             "请指定目标列或跳过对应字段。目标列须至少选择一个，且每个只能选一次。",
         );
         return false;
@@ -708,9 +708,9 @@ fn mapping_settings(
 fn local_report(ui: &mut egui::Ui, report: &LoadLocalReport, warnings_open: &mut bool) -> bool {
     form_section(ui, "导入完成", |ui| {
         let color = if report.warning_count == 0 {
-            style::SUCCESS
+            style::success()
         } else {
-            style::WARNING
+            style::warning()
         };
         ui.colored_label(
             color,
@@ -821,7 +821,7 @@ pub(crate) fn import_dialog(
         ui.set_width(form_width(ctx, 620.0));
         ui.heading("导入文本文件");
         let destination = format!("目标表 · {}.{}", import.object.schema, import.object.name);
-        ui.add(egui::Label::new(egui::RichText::new(&destination).color(style::MUTED)).truncate())
+        ui.add(egui::Label::new(egui::RichText::new(&destination).color(style::muted())).truncate())
             .on_hover_text(destination);
         if import.local_pending {
             if let Some(Ok(report)) = &workspace.local_file_import_result {
@@ -877,13 +877,13 @@ pub(crate) fn import_dialog(
                         import.error = None;
                     }
                     if !can_local && connected {
-                        ui.colored_label(style::MUTED, "通过 HTTP 隧道读取并导入 UTF-8 文本。");
+                        ui.colored_label(style::muted(), "通过 HTTP 隧道读取并导入 UTF-8 文本。");
                     }
                 });
                 form_section(ui, "文件解析", |ui| match import.method {
                     Method::Parsed => {
                         if can_local {
-                            ui.colored_label(style::MUTED, "读取 UTF-8 文件并匹配字段。");
+                            ui.colored_label(style::muted(), "读取 UTF-8 文件并匹配字段。");
                         }
                         let previous = import.options.clone();
                         ui.add_enabled_ui(!reading, |ui| format_settings(ui, &mut import.options));
@@ -910,7 +910,7 @@ pub(crate) fn import_dialog(
                     }
                     Method::Server => {
                         ui.colored_label(
-                            style::MUTED,
+                            style::muted(),
                             "将本机文件上传到数据库解析。数据库须启用 local_infile。",
                         );
                         import.local.settings(ui);
@@ -929,7 +929,7 @@ pub(crate) fn import_dialog(
                         _ => false,
                     },
                     Target::Error(error) => {
-                        ui.colored_label(style::ERROR, error);
+                        ui.colored_label(style::error(), error);
                         if ui
                             .add_enabled(can_start, egui::Button::new("重新读取目标字段"))
                             .clicked()
@@ -940,7 +940,7 @@ pub(crate) fn import_dialog(
                     }
                     Target::Pending | Target::Reading => {
                         if connected {
-                            ui.colored_label(style::MUTED, "正在读取目标字段…");
+                            ui.colored_label(style::muted(), "正在读取目标字段…");
                         }
                         false
                     }
@@ -955,10 +955,10 @@ pub(crate) fn import_dialog(
             });
         }
         if !connected {
-            ui.colored_label(style::ERROR, "数据库连接已断开。");
+            ui.colored_label(style::error(), "数据库连接已断开。");
         }
         if let Some(error) = &import.error {
-            ui.add(egui::Label::new(egui::RichText::new(error).color(style::ERROR)).truncate())
+            ui.add(egui::Label::new(egui::RichText::new(error).color(style::error())).truncate())
                 .on_hover_text(error);
         }
         right_aligned_row(ui, |ui| {

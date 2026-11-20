@@ -14,8 +14,8 @@ use super::selection::{GridSelection, Hit, Point, PointerInteraction, Selection,
 use super::values::{self, ClipboardFormat, Operator, Sort};
 use super::{JoinedGridAction, display_cell, hex};
 
-pub(in crate::app) const GRID_ROW_HEIGHT: f32 = 23.0;
-pub(in crate::app) const GRID_HEADER_HEIGHT: f32 = 27.0;
+pub(in crate::app) const GRID_ROW_HEIGHT: f32 = 26.0;
+pub(in crate::app) const GRID_HEADER_HEIGHT: f32 = 30.0;
 pub(in crate::app) const GRID_ROW_GAP: f32 = 1.0;
 const ROW_CHECK_WIDTH: f32 = 36.0;
 const NULL: Cell = Cell::Null;
@@ -23,11 +23,16 @@ const NULL: Cell = Cell::Null;
 pub(in crate::app) fn paint_grid_header(ui: &egui::Ui, height: f32) {
     let top = ui.cursor().min;
     let rect = egui::Rect::from_min_max(top, egui::pos2(ui.clip_rect().right(), top.y + height));
-    ui.painter().rect_filled(rect, 0.0, style::PANEL);
+    ui.painter().rect_filled(rect, 0.0, style::panel());
+    ui.painter().hline(
+        rect.x_range(),
+        rect.top(),
+        egui::Stroke::new(1.0_f32, style::border_subtle()),
+    );
     ui.painter().hline(
         rect.x_range(),
         rect.bottom(),
-        egui::Stroke::new(1.0_f32, style::BORDER),
+        egui::Stroke::new(1.0_f32, style::border()),
     );
 }
 
@@ -37,7 +42,7 @@ pub(in crate::app) fn grid_label(ui: &mut egui::Ui, text: RichText, right_aligne
     } else {
         Layout::left_to_right(Align::Center)
     };
-    let rect = ui.max_rect().shrink2(egui::vec2(5.0, 0.0));
+    let rect = ui.max_rect().shrink2(egui::vec2(7.0, 0.0));
     ui.scope_builder(egui::UiBuilder::new().max_rect(rect).layout(layout), |ui| {
         // Let the cell layout align the widget while keeping the galley's origin at its left edge.
         ui.add(
@@ -50,23 +55,159 @@ pub(in crate::app) fn grid_label(ui: &mut egui::Ui, text: RichText, right_aligne
 }
 
 pub(in crate::app) fn paint_cell_outline(ui: &egui::Ui) {
+    let rect = ui.max_rect().shrink(0.5);
+    ui.painter().rect_filled(rect, 3.0, style::accent_tint());
     ui.painter().rect_stroke(
-        ui.max_rect().shrink(0.5),
-        2.0,
-        egui::Stroke::new(1.0_f32, style::ACCENT),
+        rect,
+        3.0,
+        egui::Stroke::new(1.5_f32, style::accent()),
         egui::StrokeKind::Inside,
     );
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::app) enum InlineKey {
+    Up,
+    Down,
+    Commit,
+    Cancel,
+    TabNext,
+    TabPrev,
+}
+
+pub(in crate::app) fn render_inline_cell_editor(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    text: &mut String,
+    was_null: bool,
+    request_focus: &mut bool,
+    select_all: bool,
+    focus_at_end: bool,
+) -> (bool, Option<InlineKey>) {
+    let rect = ui.max_rect().shrink(0.5);
+    ui.painter().rect_filled(rect, 3.0, style::surface());
+    ui.painter().rect_stroke(
+        rect,
+        3.0,
+        egui::Stroke::new(1.5_f32, style::accent()),
+        egui::StrokeKind::Inside,
+    );
+    let edit_focused = ui.memory(|m| m.focused()) == Some(id);
+    let mut key = None;
+    if edit_focused && !egui::Popup::is_any_open(ui.ctx()) {
+        ui.input_mut(|input| {
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp) {
+                key = Some(InlineKey::Up);
+            } else if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown) {
+                key = Some(InlineKey::Down);
+            } else if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter) {
+                key = Some(InlineKey::Commit);
+            } else if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                key = Some(InlineKey::Cancel);
+            } else if input.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab) {
+                key = Some(InlineKey::TabPrev);
+            } else if input.consume_key(egui::Modifiers::NONE, egui::Key::Tab) {
+                key = Some(InlineKey::TabNext);
+            }
+        });
+    }
+    let inner = rect.shrink2(egui::vec2(2.0, 1.0));
+    let mut changed = false;
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(inner)
+            .layout(Layout::left_to_right(Align::Center)),
+        |ui| {
+            let show_null_hint = was_null && text.is_empty();
+            let mut edit = egui::TextEdit::singleline(text)
+                .id(id)
+                .frame(false)
+                .font(egui::TextStyle::Monospace)
+                .desired_width(inner.width().max(24.0))
+                .margin(egui::Margin::symmetric(4, 1));
+            if show_null_hint {
+                edit = edit.hint_text("(NULL)");
+            }
+            let mut output = edit.show(ui);
+            changed = output.response.changed();
+            if *request_focus {
+                *request_focus = false;
+                let char_count = text.chars().count();
+                if select_all && char_count > 0 {
+                    output
+                        .state
+                        .cursor
+                        .set_char_range(Some(egui::text::CCursorRange::two(
+                            egui::text::CCursor::new(0),
+                            egui::text::CCursor::new(char_count),
+                        )));
+                    output.state.store(ui.ctx(), output.response.id);
+                } else if focus_at_end {
+                    output
+                        .state
+                        .cursor
+                        .set_char_range(Some(egui::text::CCursorRange::one(
+                            egui::text::CCursor::new(char_count),
+                        )));
+                    output.state.store(ui.ctx(), output.response.id);
+                }
+                output.response.request_focus();
+            }
+        },
+    );
+    (changed, key)
+}
+
 pub(in crate::app) fn grid_cell(ui: &mut egui::Ui, cell: &Cell, numeric: bool, current: bool) {
+    grid_cell_styled(ui, cell, numeric, current, false, false);
+}
+
+pub(in crate::app) fn grid_cell_styled(
+    ui: &mut egui::Ui,
+    cell: &Cell,
+    numeric: bool,
+    current: bool,
+    read_only_tint: bool,
+    modified: bool,
+) {
     let text = RichText::new(display_cell(cell, true)).monospace();
-    let text = if matches!(cell, Cell::Null) {
-        text.italics().color(style::MUTED)
+    let is_null = matches!(cell, Cell::Null);
+    if modified {
+        let rect = ui.max_rect();
+        ui.painter().rect_filled(rect, 0.0, style::error_soft());
+        ui.painter().rect_filled(
+            egui::Rect::from_min_max(rect.min, egui::pos2(rect.left() + 2.5, rect.bottom())),
+            0.0,
+            style::error(),
+        );
+    } else if read_only_tint && !current {
+        ui.painter()
+            .rect_filled(ui.max_rect(), 0.0, style::chrome());
+    }
+    let text = if is_null {
+        text.italics().color(style::subtle())
+    } else if read_only_tint && !current && !modified {
+        text.color(style::muted())
     } else {
-        text.color(style::INK)
+        text.color(style::ink())
     };
     if current {
         paint_cell_outline(ui);
+    } else if is_null && !read_only_tint && !modified {
+        let cell_rect = ui.max_rect().shrink2(egui::vec2(5.0, 3.5));
+        let pill_w = cell_rect.width().min(42.0);
+        if pill_w >= 26.0 && cell_rect.height() >= 12.0 {
+            let pill = if numeric {
+                egui::Rect::from_min_max(
+                    egui::pos2(cell_rect.right() - pill_w, cell_rect.top()),
+                    cell_rect.max,
+                )
+            } else {
+                egui::Rect::from_min_size(cell_rect.min, egui::vec2(pill_w, cell_rect.height()))
+            };
+            ui.painter()
+                .rect_filled(pill, egui::CornerRadius::same(4), style::chrome());
+        }
     }
     grid_label(ui, text, numeric);
 }
@@ -469,12 +610,18 @@ pub(super) fn controls(
     let mut clear_sort = false;
     let mut action = None;
     if !text_output {
-        ui.menu_button("复制", |ui| {
-            action = copy_menu(ui, set, view);
-            if action.is_some() {
-                ui.close();
-            }
-        });
+        style::icon_menu_button(
+            ui,
+            style::ToolbarIcon::Copy,
+            !set.rows.is_empty(),
+            "复制（选择范围与格式）",
+            |ui| {
+                action = copy_menu(ui, set, view);
+                if action.is_some() {
+                    ui.close();
+                }
+            },
+        );
         if allow_duplicate
             && let Some(row) = view.selected_source_row()
             && duplicate_button(ui, set)
@@ -507,15 +654,15 @@ pub(super) fn controls(
         clear_sort = true;
     }
     if !text_output && let Some(selection) = view.selection.current() {
+        let rows = selection.rows().len();
+        let cols = selection.columns(set.columns.len()).len();
         ui.label(
-            RichText::new(format!(
-                "选中 {} 行 × {} 列",
-                selection.rows().len(),
-                selection.columns(set.columns.len()).len()
-            ))
-            .small()
-            .color(style::MUTED),
-        );
+            RichText::new(format!("{rows}×{cols}"))
+                .small()
+                .monospace()
+                .color(style::muted()),
+        )
+        .on_hover_text(format!("已选中 {rows} 行 × {cols} 列"));
     }
     if clear_filters {
         view.predicates.clear();
@@ -561,7 +708,7 @@ fn copy_menu(ui: &mut egui::Ui, set: &ResultSet, view: &View) -> Option<Edit> {
     ui.label(
         RichText::new("快速复制中，NULL 用 \\N，二进制以 \\x 开头")
             .small()
-            .color(style::MUTED),
+            .color(style::muted()),
     );
     for format in [ClipboardFormat::Tsv, ClipboardFormat::Csv] {
         for (label, scope, enabled) in [
@@ -744,10 +891,23 @@ pub(super) fn show(
     );
 }
 
+pub(in crate::app) struct InlineJoinedCell<'a> {
+    pub(in crate::app) point: Point,
+    pub(in crate::app) text: &'a mut String,
+    pub(in crate::app) was_null: bool,
+    pub(in crate::app) request_focus: &'a mut bool,
+    pub(in crate::app) select_all: bool,
+    pub(in crate::app) focus_at_end: bool,
+    pub(in crate::app) changed: &'a mut bool,
+}
+
 pub(super) struct JoinedEditing<'a> {
     pub(super) can_edit: Option<&'a dyn Fn(Point) -> bool>,
     pub(super) can_check: Option<&'a dyn Fn(usize) -> bool>,
     pub(super) move_draft: bool,
+    pub(super) read_only_tint: bool,
+    pub(super) inline: Option<InlineJoinedCell<'a>>,
+    pub(super) modified_cell: Option<&'a dyn Fn(Point) -> Option<String>>,
 }
 
 pub(super) fn show_grid(
@@ -758,16 +918,16 @@ pub(super) fn show_grid(
     keyboard_allowed: bool,
     request_focus: bool,
     grid_widths: &mut GridWidths,
-    joined: Option<JoinedEditing<'_>>,
+    mut joined: Option<JoinedEditing<'_>>,
 ) -> Option<JoinedGridAction> {
     let row_height = style::grid_row_height(ui, GRID_ROW_HEIGHT);
     let header_height = style::grid_row_height(ui, GRID_HEADER_HEIGHT);
     let move_draft = joined.as_ref().is_some_and(|mode| mode.move_draft);
-    let interactive = joined.is_none() || keyboard_allowed && !move_draft;
-    let can_edit = joined
-        .as_ref()
-        .and_then(|mode| mode.can_edit)
-        .filter(|_| interactive);
+    let read_only_all = joined.as_ref().is_some_and(|mode| mode.read_only_tint);
+    let has_inline = joined.as_ref().is_some_and(|mode| mode.inline.is_some());
+    let interactive = joined.is_none() || (keyboard_allowed && !move_draft && !has_inline);
+    let belongs_to_target = joined.as_ref().and_then(|mode| mode.can_edit);
+    let can_edit = belongs_to_target.filter(|_| interactive);
     let can_check = joined.as_ref().and_then(|mode| mode.can_check);
     let mut joined_action = None;
     let mut space_entry = None;
@@ -776,7 +936,7 @@ pub(super) fn show_grid(
     }
     let focus = view.selection.focus(ui);
     let columns = set.columns.len();
-    if keyboard_allowed && !move_draft && focus.has_focus() {
+    if keyboard_allowed && !move_draft && !has_inline && focus.has_focus() {
         let rows = view.visible().len();
         let page_rows = (ui.available_height() / (row_height + GRID_ROW_GAP)).max(1.0) as usize;
         for shortcut in view
@@ -909,14 +1069,14 @@ pub(super) fn show_grid(
                     if can_check.is_some() {
                         header.col(|ui| {
                             ui.add(
-                                egui::Label::new(RichText::new("勾选").small().color(style::MUTED))
+                                egui::Label::new(RichText::new("勾选").small().color(style::muted()))
                                     .selectable(false),
                             )
                             .on_hover_text("勾选要删除的源记录");
                         });
                     }
                     let (_, gutter) = header.col(|ui| {
-                        grid_label(ui, RichText::new("#").monospace().color(style::MUTED), true);
+                        grid_label(ui, RichText::new("#").monospace().color(style::muted()), true);
                     });
                     if interactive && gutter.on_hover_text("全选可见行").clicked() {
                         action = Some(Edit::SelectAll);
@@ -935,9 +1095,9 @@ pub(super) fn show_grid(
                                 if view.sorts.len() > 1 {
                                     label.push_str(&(priority + 1).to_string());
                                 }
-                                RichText::new(label).color(style::ACCENT)
+                                RichText::new(label).color(style::accent())
                             } else {
-                                RichText::new(name).color(style::INK)
+                                RichText::new(name).color(style::ink())
                             };
                             grid_label(ui, text.strong(), numeric_columns[column]);
                         });
@@ -990,9 +1150,9 @@ pub(super) fn show_grid(
                                 ui,
                                 RichText::new((source + 1).to_string()).monospace().color(
                                     if row_selected {
-                                        style::ACCENT
+                                        style::accent()
                                     } else {
-                                        style::MUTED
+                                        style::muted()
                                     },
                                 ),
                                 true,
@@ -1040,16 +1200,94 @@ pub(super) fn show_grid(
                                 row: source,
                                 column,
                             };
+                            let target_editable =
+                                belongs_to_target.is_some_and(|f| f(source_point));
                             let editable = can_edit.is_some_and(|can_edit| can_edit(source_point));
+                            let is_inline_cell = joined
+                                .as_ref()
+                                .and_then(|mode| mode.inline.as_ref())
+                                .is_some_and(|inline| inline.point == source_point);
                             row.set_selected(
-                                selected.is_some_and(|selection| selection.contains(point)),
+                                !is_inline_cell
+                                    && selected.is_some_and(|selection| selection.contains(point)),
                             );
                             let value = get_cell(set, source, column);
+                            let modified_preview = joined
+                                .as_ref()
+                                .and_then(|mode| mode.modified_cell)
+                                .and_then(|f| f(source_point));
                             let (_, response) = row.col(|ui| {
-                                let current = selected.is_some_and(|selection| {
-                                    !selection.whole_rows && selection.head == point
-                                });
-                                grid_cell(ui, value, numeric, current);
+                                if is_inline_cell
+                                    && let Some(inline) =
+                                        joined.as_mut().and_then(|mode| mode.inline.as_mut())
+                                {
+                                    let edit_id =
+                                        ui.make_persistent_id(("joined-inline-edit", source, column));
+                                    let (changed, key) = render_inline_cell_editor(
+                                        ui,
+                                        edit_id,
+                                        inline.text,
+                                        inline.was_null,
+                                        inline.request_focus,
+                                        inline.select_all,
+                                        inline.focus_at_end,
+                                    );
+                                    if changed {
+                                        *inline.changed = true;
+                                    }
+                                    if let Some(key) = key {
+                                        joined_action = Some(match key {
+                                            InlineKey::Up => visible
+                                                .checked_sub(1)
+                                                .and_then(|prev| view.visible().get(prev).copied())
+                                                .map_or(JoinedGridAction::InlineCommit, |row| {
+                                                    JoinedGridAction::Move(Point { row, column })
+                                                }),
+                                            InlineKey::Down => visible
+                                                .checked_add(1)
+                                                .and_then(|next| view.visible().get(next).copied())
+                                                .map_or(JoinedGridAction::InlineCommit, |row| {
+                                                    JoinedGridAction::Move(Point { row, column })
+                                                }),
+                                            InlineKey::Commit => JoinedGridAction::InlineCommit,
+                                            InlineKey::Cancel => JoinedGridAction::InlineCancel,
+                                            InlineKey::TabNext => {
+                                                JoinedGridAction::InlineStepColumn { forward: true }
+                                            }
+                                            InlineKey::TabPrev => {
+                                                JoinedGridAction::InlineStepColumn {
+                                                    forward: false,
+                                                }
+                                            }
+                                        });
+                                    }
+                                } else {
+                                    let current = selected.is_some_and(|selection| {
+                                        !selection.whole_rows && selection.head == point
+                                    });
+                                    let cell_read_only = read_only_all
+                                        || (joined.is_some() && !target_editable);
+                                    if let Some(preview) = &modified_preview {
+                                        let preview_cell = Cell::Text(preview.clone());
+                                        grid_cell_styled(
+                                            ui,
+                                            &preview_cell,
+                                            numeric,
+                                            current,
+                                            false,
+                                            true,
+                                        );
+                                    } else {
+                                        grid_cell_styled(
+                                            ui,
+                                            value,
+                                            numeric,
+                                            current,
+                                            cell_read_only,
+                                            false,
+                                        );
+                                    }
+                                }
                                 if scroll_to == Some(point) {
                                     ui.scroll_to_cursor(None);
                                     did_scroll = true;
@@ -1072,7 +1310,7 @@ pub(super) fn show_grid(
                                     clicked_cell = Some(cell);
                                 }
                             }
-                            if click_moves_draft(&response) {
+                            if !is_inline_cell && click_moves_draft(&response) {
                                 joined_action = Some(JoinedGridAction::Move(source_point));
                             }
                             if interactive {
@@ -1269,6 +1507,9 @@ mod tests {
                                 can_edit: Some(&can_edit),
                                 can_check: Some(&can_check),
                                 move_draft: false,
+                                read_only_tint: false,
+                                inline: None,
+                                modified_cell: None,
                             }),
                         );
                     });

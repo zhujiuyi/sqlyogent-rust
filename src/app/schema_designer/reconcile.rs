@@ -268,7 +268,7 @@ impl Reconcile {
                         ScrollArea::vertical()
                             .id_salt("layout-status")
                             .max_height(72.0)
-                            .show(ui, |ui| ui.colored_label(style::ERROR, error));
+                            .show(ui, |ui| ui.colored_label(style::error(), error));
                     }
                 }
             }
@@ -600,7 +600,7 @@ impl Review {
                                         RichText::new(
                                             table.problem.unwrap_or("请检查保存的表定义。"),
                                         )
-                                        .color(style::MUTED),
+                                        .color(style::muted()),
                                     );
                                 }
                             }

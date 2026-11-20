@@ -7,8 +7,8 @@ mod text;
 pub(super) mod values;
 
 pub(super) use grid::{
-    GRID_HEADER_HEIGHT, GRID_ROW_GAP, GRID_ROW_HEIGHT, grid_cell, grid_label, paint_cell_outline,
-    paint_grid_header,
+    GRID_HEADER_HEIGHT, GRID_ROW_GAP, GRID_ROW_HEIGHT, InlineJoinedCell, InlineKey,
+    grid_cell_styled, grid_label, paint_cell_outline, paint_grid_header, render_inline_cell_editor,
 };
 pub(super) use history::{History, HistoryTiming};
 pub(super) use text::TextRows;
@@ -48,21 +48,67 @@ impl ResultMode {
 }
 
 pub(super) fn result_view_controls(ui: &mut egui::Ui, mode: &mut ResultMode, form: bool) {
-    for choice in ResultMode::ALL {
-        let selected = *mode == choice;
-        let text =
-            RichText::new(choice.label()).color(if selected { style::ACCENT } else { style::INK });
-        let button = egui::Button::selectable(selected, text);
-        let response = ui.add_enabled(form || choice != ResultMode::Form, button);
-        let response = if choice == ResultMode::Text {
-            response.on_hover_text("切换文本视图（Ctrl+L / ⌘L）")
-        } else {
-            response
-        };
-        if response.clicked() {
-            *mode = choice;
-        }
-    }
+    style::subtle_card(egui::Margin::symmetric(2, 1)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            for choice in ResultMode::ALL {
+                let enabled = form || choice != ResultMode::Form;
+                let selected = *mode == choice;
+                let icon = match choice {
+                    ResultMode::Grid => style::ToolbarIcon::GridView,
+                    ResultMode::Text => style::ToolbarIcon::TextView,
+                    ResultMode::Form => style::ToolbarIcon::FormView,
+                };
+                let tooltip = match choice {
+                    ResultMode::Grid => "表格视图",
+                    ResultMode::Text => "文本视图（Ctrl+L / ⌘L）",
+                    ResultMode::Form => "表单视图",
+                };
+                let sense = if enabled {
+                    egui::Sense::click()
+                } else {
+                    egui::Sense::hover()
+                };
+                let (rect, response) = ui.allocate_exact_size(egui::vec2(24.0, 20.0), sense);
+                if ui.is_rect_visible(rect) {
+                    let hovered = enabled && response.hovered();
+                    let fill = if selected {
+                        style::surface()
+                    } else if hovered {
+                        style::accent_tint()
+                    } else {
+                        egui::Color32::TRANSPARENT
+                    };
+                    let stroke = if selected {
+                        egui::Stroke::new(1.0_f32, style::border())
+                    } else {
+                        egui::Stroke::NONE
+                    };
+                    let fg = if !enabled {
+                        style::subtle()
+                    } else if selected {
+                        style::accent()
+                    } else if hovered {
+                        style::ink()
+                    } else {
+                        style::muted()
+                    };
+                    let painter = ui.painter();
+                    painter.rect(
+                        rect,
+                        egui::CornerRadius::same(4),
+                        fill,
+                        stroke,
+                        egui::StrokeKind::Inside,
+                    );
+                    style::paint_toolbar_icon(painter, rect, icon, fg);
+                }
+                if response.on_hover_text(tooltip).clicked() && enabled {
+                    *mode = choice;
+                }
+            }
+        });
+    });
 }
 
 #[derive(Default)]
@@ -86,6 +132,9 @@ pub(super) struct ResultGrid(grid::View);
 pub(super) enum JoinedGridAction {
     Edit(selection::Point, Option<String>),
     Move(selection::Point),
+    InlineCommit,
+    InlineCancel,
+    InlineStepColumn { forward: bool },
 }
 
 impl ResultGrid {
@@ -97,6 +146,7 @@ impl ResultGrid {
         self.0.take_export_request()
     }
 
+    #[cfg(test)]
     pub(super) fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -117,6 +167,34 @@ impl ResultGrid {
         );
     }
 
+    pub(super) fn show_read_only(
+        &mut self,
+        ui: &mut egui::Ui,
+        set: &ResultSet,
+        headers: bool,
+        keyboard_allowed: bool,
+        settings: EditorSettings,
+        grid_widths: &mut GridWidths,
+    ) {
+        let _ = self.render(
+            ui,
+            set,
+            headers,
+            keyboard_allowed,
+            settings,
+            grid_widths,
+            Some(grid::JoinedEditing {
+                can_edit: None,
+                can_check: None,
+                move_draft: false,
+                read_only_tint: true,
+                inline: None,
+                modified_cell: None,
+            }),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn show_joined(
         &mut self,
         ui: &mut egui::Ui,
@@ -128,6 +206,8 @@ impl ResultGrid {
         can_edit: Option<&dyn Fn(selection::Point) -> bool>,
         can_check: Option<&dyn Fn(usize) -> bool>,
         move_draft: bool,
+        inline: Option<grid::InlineJoinedCell<'_>>,
+        modified_cell: Option<&dyn Fn(selection::Point) -> Option<String>>,
     ) -> Option<JoinedGridAction> {
         self.render(
             ui,
@@ -140,6 +220,9 @@ impl ResultGrid {
                 can_edit,
                 can_check,
                 move_draft,
+                read_only_tint: false,
+                inline,
+                modified_cell,
             }),
         )
     }
@@ -195,6 +278,23 @@ impl ResultGrid {
         self.0.focus_source_point(set, point)
     }
 
+    pub(super) fn show_controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        set: &ResultSet,
+        headers: bool,
+        enabled: bool,
+    ) {
+        self.0.prepare(set);
+        ui.horizontal(|ui| {
+            if !enabled {
+                ui.disable();
+            }
+            grid::controls(ui, set, &mut self.0, headers, false, false);
+        });
+        self.0.prepare(set);
+    }
+
     fn render(
         &mut self,
         ui: &mut egui::Ui,
@@ -206,15 +306,13 @@ impl ResultGrid {
         joined: Option<grid::JoinedEditing<'_>>,
     ) -> Option<JoinedGridAction> {
         self.0.prepare(set);
-        let controls_enabled = joined
-            .as_ref()
-            .is_none_or(|joined| keyboard_allowed && !joined.move_draft);
-        ui.horizontal_wrapped(|ui| {
-            ui.add_enabled_ui(controls_enabled, |ui| {
-                grid::controls(ui, set, &mut self.0, headers, false, joined.is_none());
+        if joined.is_none() {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            ui.horizontal_wrapped(|ui| {
+                grid::controls(ui, set, &mut self.0, headers, false, true);
             });
-        });
-        self.0.prepare(set);
+            self.0.prepare(set);
+        }
         let action = grid::show_grid(
             ui,
             set,
@@ -322,6 +420,7 @@ pub(super) fn panel_in(
         if workspace.output == Output::Profile && !has_profile {
             workspace.output = Output::Results;
         }
+        ui.spacing_mut().item_spacing.y = 4.0;
         ui.horizontal_wrapped(|ui| {
             for (output, label) in [
                 (Output::Results, "结果"),
@@ -336,11 +435,11 @@ pub(super) fn panel_in(
                 }
                 let active = workspace.output == output;
                 let text = if active {
-                    RichText::new(label).strong().color(style::ACCENT)
+                    RichText::new(label).strong().color(style::accent())
                 } else {
-                    RichText::new(label).color(style::MUTED)
+                    RichText::new(label).color(style::muted())
                 };
-                let tab = ui.add(egui::Button::selectable(active, text));
+                let tab = style::tab_button(ui, active, text, true);
                 let editable_result_tab = output == Output::Results && has_editable_result;
                 let tab = if editable_result_tab {
                     tab.on_hover_text("点击聚焦可编辑结果，也可按 Ctrl+R。")
@@ -368,7 +467,7 @@ pub(super) fn panel_in(
                     "停止读取"
                 };
                 if ui
-                    .add_enabled(keyboard_allowed && !stopping, egui::Button::new(label))
+                    .add_enabled(keyboard_allowed && !stopping, style::danger(label))
                     .on_hover_text("停止当前查询页的 F8 读取")
                     .clicked()
                 {
@@ -378,7 +477,7 @@ pub(super) fn panel_in(
         });
         ui.separator();
         if suppress_modal && has_modal(workspace) {
-            ui.label(RichText::new("切换到此连接以继续处理对话框。").color(style::MUTED));
+            ui.label(RichText::new("切换到此连接以继续处理对话框。").color(style::muted()));
             return;
         }
         match workspace.output {
@@ -399,7 +498,7 @@ pub(super) fn panel_in(
                 });
             }
             Output::Results if starting_f8 && workspace.tab().report.is_none() => {
-                ui.label(RichText::new(&workspace.status).color(style::MUTED));
+                ui.label(RichText::new(&workspace.status).color(style::muted()));
             }
             Output::Results => results(
                 ui,
@@ -423,7 +522,7 @@ pub(super) fn panel_in(
                     );
                 } else {
                     ui.label(
-                        RichText::new("在对象浏览器中选择一张表以查看数据。").color(style::MUTED),
+                        RichText::new("在对象浏览器中选择一张表以查看数据。").color(style::muted()),
                     );
                 }
             }),
@@ -432,13 +531,13 @@ pub(super) fn panel_in(
                 let mut detail = None;
                 if let Some(error) = &workspace.tab().command_error
                     && ui
-                        .button(RichText::new("查看错误详情…").color(style::ERROR))
+                        .button(RichText::new("查看错误详情…").color(style::error()))
                         .clicked()
                 {
                     detail = Some(error.clone());
                 }
                 if batch.is_none() && workspace.messages.is_empty() {
-                    ui.label(RichText::new("暂无消息").color(style::MUTED));
+                    ui.label(RichText::new("暂无消息").color(style::muted()));
                 }
                 egui::ScrollArea::vertical()
                     .id_salt(("query-messages", workspace.tab().id, batch.is_some()))
@@ -461,91 +560,131 @@ pub(super) fn panel_in(
                                 .map_or(&[][..], |report| report.sets.as_slice());
                             for (index, statement) in batch.statements.iter().enumerate() {
                                 ui.add_space(6.0);
-                                let title = RichText::new(format!("第 {} 条语句", index + 1));
-                                ui.label(if statement.error.is_some() {
-                                    title.color(style::ERROR)
-                                } else {
-                                    title.strong()
+                                let failed = statement.error.is_some();
+                                let card_frame = style::subtle_card(egui::Margin {
+                                    left: 14,
+                                    right: 12,
+                                    top: 8,
+                                    bottom: 8,
                                 });
-                                ui.add(
-                                    egui::Label::new(RichText::new(&statement.sql).monospace())
+                                let card_response = card_frame.show(ui, |ui| {
+                                    ui.set_min_width(ui.available_width());
+                                    let title = RichText::new(format!("第 {} 条语句", index + 1));
+                                    ui.label(if failed {
+                                        title.strong().color(style::error())
+                                    } else {
+                                        title.strong().color(style::ink())
+                                    });
+                                    ui.add(
+                                        egui::Label::new(
+                                            RichText::new(&statement.sql)
+                                                .monospace()
+                                                .color(style::ink()),
+                                        )
                                         .selectable(true),
-                                );
-                                if let Some(editable) = &statement.editable_result {
-                                    if editable.truncated {
-                                        ui.label(format!(
-                                            "已保留前 {} 行可编辑结果",
-                                            editable.rows
-                                        ));
-                                    } else {
-                                        ui.label(format!("返回 {} 行可编辑结果", editable.rows));
-                                    }
-                                }
-                                for (index, set) in
-                                    sets[statement.result_sets.clone()].iter().enumerate()
-                                {
-                                    let detail = if set.columns.is_empty() {
-                                        format!("受影响 {} 行", set.affected_rows)
-                                    } else if set.truncated {
-                                        format!("显示前 {} 行，结果已截断", set.rows.len())
-                                    } else {
-                                        format!("返回 {} 行", set.rows.len())
-                                    };
-                                    ui.label(detail);
-                                    if let Some(id) = set.last_insert_id {
-                                        ui.label(format!("最后插入 ID {id}"));
-                                    }
-                                    if let Some(notice) = &set.notice {
-                                        ui.label(notice);
-                                    }
-                                    if let Some(diagnostics) =
-                                        statement.diagnostics.results.get(index)
-                                    {
-                                        if let Some(count) =
-                                            diagnostics.warning_count.filter(|&count| count > 0)
-                                        {
-                                            ui.label(format!("警告 {count} 条"));
+                                    );
+                                    if let Some(editable) = &statement.editable_result {
+                                        if editable.truncated {
+                                            ui.label(format!(
+                                                "已保留前 {} 行可编辑结果",
+                                                editable.rows
+                                            ));
+                                        } else {
+                                            ui.label(format!("返回 {} 行可编辑结果", editable.rows));
                                         }
+                                    }
+                                    for (index, set) in
+                                        sets[statement.result_sets.clone()].iter().enumerate()
+                                    {
+                                        let detail = if set.columns.is_empty() {
+                                            format!("受影响 {} 行", set.affected_rows)
+                                        } else if set.truncated {
+                                            format!("显示前 {} 行，结果已截断", set.rows.len())
+                                        } else {
+                                            format!("返回 {} 行", set.rows.len())
+                                        };
+                                        ui.label(detail);
+                                        if let Some(id) = set.last_insert_id {
+                                            ui.label(format!("最后插入 ID {id}"));
+                                        }
+                                        if let Some(notice) = &set.notice {
+                                            ui.label(notice);
+                                        }
+                                        if let Some(diagnostics) =
+                                            statement.diagnostics.results.get(index)
+                                        {
+                                            if let Some(count) =
+                                                diagnostics.warning_count.filter(|&count| count > 0)
+                                            {
+                                                ui.colored_label(
+                                                    style::warning(),
+                                                    format!("警告 {count} 条"),
+                                                );
+                                            }
+                                            ui.label(
+                                                RichText::new(query_time_label(
+                                                    diagnostics.elapsed,
+                                                    statement.diagnostics.execution,
+                                                ))
+                                                .small()
+                                                .color(style::muted()),
+                                            );
+                                        }
+                                    }
+                                    if statement.omitted_sets > 0 {
+                                        ui.label(format!(
+                                            "另有 {} 个结果未保留",
+                                            statement.omitted_sets
+                                        ));
+                                    }
+                                    if let Some(error) = &statement.error {
+                                        ui.add(
+                                            egui::Label::new(
+                                                RichText::new(error).color(style::error()),
+                                            )
+                                            .selectable(true),
+                                        );
+                                        if ui
+                                            .button(
+                                                RichText::new("查看错误详情…").color(style::error()),
+                                            )
+                                            .clicked()
+                                        {
+                                            detail = Some(super::error_details::ErrorDetails::new(
+                                                &statement.sql,
+                                                error,
+                                            ));
+                                        }
+                                    }
+                                    if (statement.diagnostics.results.is_empty()
+                                        || statement.omitted_sets > 0
+                                        || statement.error.is_some())
+                                        && let Some(elapsed) = statement.elapsed
+                                    {
                                         ui.label(
                                             RichText::new(query_time_label(
-                                                diagnostics.elapsed,
+                                                elapsed,
                                                 statement.diagnostics.execution,
                                             ))
-                                            .color(style::MUTED),
+                                            .small()
+                                            .color(style::muted()),
                                         );
                                     }
-                                }
-                                if statement.omitted_sets > 0 {
-                                    ui.label(format!(
-                                        "另有 {} 个结果未保留",
-                                        statement.omitted_sets
-                                    ));
-                                }
-                                if let Some(error) = &statement.error {
-                                    ui.add(egui::Label::new(error).selectable(true));
-                                    if ui
-                                        .button(RichText::new("查看错误详情…").color(style::ERROR))
-                                        .clicked()
-                                    {
-                                        detail = Some(super::error_details::ErrorDetails::new(
-                                            &statement.sql,
-                                            error,
-                                        ));
-                                    }
-                                }
-                                if (statement.diagnostics.results.is_empty()
-                                    || statement.omitted_sets > 0
-                                    || statement.error.is_some())
-                                    && let Some(elapsed) = statement.elapsed
-                                {
-                                    ui.label(
-                                        RichText::new(query_time_label(
-                                            elapsed,
-                                            statement.diagnostics.execution,
-                                        ))
-                                        .color(style::MUTED),
-                                    );
-                                }
+                                });
+                                let rect = card_response.response.rect;
+                                let bar_color = if failed {
+                                    style::error()
+                                } else {
+                                    style::success()
+                                };
+                                ui.painter().rect_filled(
+                                    egui::Rect::from_min_max(
+                                        egui::pos2(rect.left() + 1.0, rect.top() + 6.0),
+                                        egui::pos2(rect.left() + 4.0, rect.bottom() - 6.0),
+                                    ),
+                                    egui::CornerRadius::same(2),
+                                    bar_color,
+                                );
                             }
                             if !workspace.messages.is_empty() {
                                 ui.separator();
@@ -580,17 +719,18 @@ pub(super) fn panel_in(
             Output::Definition => definition(ui, workspace, settings.history_font, request_focus),
         }
     };
-    let frame = style::bar(egui::Margin::symmetric(12, 8));
+    let frame = style::bar(egui::Margin::symmetric(10, 5));
     if full_height {
         host.central(egui::CentralPanel::default().frame(frame), content);
     } else {
         host.bottom(
             egui::TopBottomPanel::bottom(panel_id)
                 .resizable(true)
-                .default_height(289.0)
-                .height_range(125.0..=520.0)
+                .default_height(330.0)
+                .height_range(125.0..=640.0)
                 .frame(frame),
             |ui| {
+                style::paint_top_hairline(ui);
                 // Keep the splitter's stored height independent of the content's measured size.
                 let rect = ui.available_rect_before_wrap();
                 ui.allocate_rect(rect, egui::Sense::hover());
@@ -615,13 +755,15 @@ pub(super) fn query_time_label(elapsed: Duration, execution: Option<Duration>) -
 
 fn definition(ui: &mut egui::Ui, workspace: &mut Workspace, font: TextFont, request_focus: bool) {
     let Some(detail) = &workspace.detail else {
-        ui.label(RichText::new("选择数据库对象以查看定义。").color(style::MUTED));
+        ui.label(RichText::new("选择数据库对象以查看定义。").color(style::muted()));
         return;
     };
     let mut open = false;
     ui.horizontal(|ui| {
         ui.label(
-            RichText::new(format!("{}.{}", detail.object.schema, detail.object.name)).strong(),
+            RichText::new(format!("{}.{}", detail.object.schema, detail.object.name))
+                .strong()
+                .color(style::ink()),
         );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             open = ui
@@ -632,30 +774,73 @@ fn definition(ui: &mut egui::Ui, workspace: &mut Workspace, font: TextFont, requ
                 .clicked();
         });
     });
+    ui.add_space(4.0);
     egui::ScrollArea::both().show(ui, |ui| {
         if !detail.columns.is_empty() {
-            egui::Grid::new("column-metadata")
-                .striped(true)
-                .show(ui, |ui| {
-                    for label in ["列名", "类型", "允许 NULL", "键类型", "默认值", "其他属性"]
-                    {
-                        ui.strong(label);
-                    }
-                    ui.end_row();
-                    for column in &detail.columns {
-                        ui.label(&column.name);
-                        ui.monospace(&column.data_type);
-                        ui.label(if column.nullable { "是" } else { "否" });
-                        ui.label(&column.key);
-                        ui.monospace(column.default_value.as_deref().unwrap_or("—"));
-                        ui.label(&column.extra);
+            style::card(egui::Margin::same(10)).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                egui::Grid::new("column-metadata")
+                    .striped(true)
+                    .spacing([16.0, 6.0])
+                    .show(ui, |ui| {
+                        for label in ["列名", "类型", "允许 NULL", "键类型", "默认值", "其他属性"]
+                        {
+                            ui.label(RichText::new(label).strong().color(style::muted()));
+                        }
                         ui.end_row();
-                    }
-                });
-            ui.separator();
+                        for column in &detail.columns {
+                            ui.label(RichText::new(&column.name).strong().color(style::ink()));
+                            ui.label(
+                                RichText::new(&column.data_type)
+                                    .monospace()
+                                    .color(style::cyan()),
+                            );
+                            ui.label(
+                                RichText::new(if column.nullable { "是" } else { "否" }).color(
+                                    if column.nullable {
+                                        style::muted()
+                                    } else {
+                                        style::ink()
+                                    },
+                                ),
+                            );
+                            match column.key.as_str() {
+                                "PRI" => style::badge(
+                                    ui,
+                                    "PRI",
+                                    style::accent(),
+                                    style::accent_soft(),
+                                ),
+                                "UNI" => style::badge(
+                                    ui,
+                                    "UNI",
+                                    style::cyan(),
+                                    style::accent_tint(),
+                                ),
+                                "MUL" => style::badge(
+                                    ui,
+                                    "MUL",
+                                    style::muted(),
+                                    style::chrome(),
+                                ),
+                                other => {
+                                    ui.label(RichText::new(other).color(style::muted()));
+                                }
+                            }
+                            ui.label(
+                                RichText::new(column.default_value.as_deref().unwrap_or("—"))
+                                    .monospace()
+                                    .color(style::muted()),
+                            );
+                            ui.label(RichText::new(&column.extra).small().color(style::muted()));
+                            ui.end_row();
+                        }
+                    });
+            });
+            ui.add_space(8.0);
         }
         if let Some(error) = &detail.ddl_error {
-            ui.colored_label(style::ERROR, error);
+            ui.colored_label(style::error(), error);
         }
         let mut ddl = detail.ddl.as_str();
         let text = ui.add(
@@ -701,7 +886,7 @@ fn results(
     let show_data_info = workspace.show_data_info;
     let tab = workspace.tab_mut();
     let Some(report) = &tab.report else {
-        ui.label(RichText::new("执行查询后查看结果。").color(style::MUTED));
+        ui.label(RichText::new("执行查询后查看结果。").color(style::muted()));
         return;
     };
     let displayed: Vec<_> = report
@@ -731,55 +916,64 @@ fn results(
         mode = next;
     }
     let mut filter_changed = false;
-    ui.horizontal_wrapped(|ui| {
-        egui::ComboBox::from_id_salt(("result-set", workspace_key, tab.id))
-            .width(100.0)
-            .selected_text(format!("结果集 {} / {}", current + 1, displayed.len()))
-            .show_ui(ui, |ui| {
-                for (offset, &index) in displayed.iter().enumerate() {
-                    let set = &report.sets[index];
-                    let summary = if set.columns.is_empty() {
-                        format!("影响 {} 行", set.affected_rows)
-                    } else {
-                        format!("{} 行", set.rows.len())
-                    };
-                    ui.selectable_value(&mut tab.set, index, format!("{}   {summary}", offset + 1));
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(5.0, 4.0);
+        ui.spacing_mut().button_padding = egui::vec2(7.0, 2.5);
+        ui.spacing_mut().interact_size.y = 22.0;
+        ui.horizontal_wrapped(|ui| {
+            egui::ComboBox::from_id_salt(("result-set", workspace_key, tab.id))
+                .width(100.0)
+                .selected_text(format!("结果集 {} / {}", current + 1, displayed.len()))
+                .show_ui(ui, |ui| {
+                    for (offset, &index) in displayed.iter().enumerate() {
+                        let set = &report.sets[index];
+                        let summary = if set.columns.is_empty() {
+                            format!("影响 {} 行", set.affected_rows)
+                        } else {
+                            format!("{} 行", set.rows.len())
+                        };
+                        ui.selectable_value(
+                            &mut tab.set,
+                            index,
+                            format!("{}   {summary}", offset + 1),
+                        );
+                    }
+                });
+            let set = &report.sets[tab.set];
+            if !set.columns.is_empty() {
+                ui.separator();
+                result_view_controls(ui, &mut mode, true);
+                ui.separator();
+                let view = &mut tab.result_views.sets.entry(tab.set).or_default().grid;
+                let search_id =
+                    ui.make_persistent_id(("result-search", workspace_key, tab.id, tab.set));
+                if ui
+                    .add(
+                        TextEdit::singleline(&mut view.search)
+                            .id(search_id)
+                            .desired_width(140.0)
+                            .hint_text("筛选已加载行"),
+                    )
+                    .changed()
+                {
+                    view.invalidate();
                 }
-            });
-        let set = &report.sets[tab.set];
-        if !set.columns.is_empty() {
-            ui.separator();
-            result_view_controls(ui, &mut mode, true);
-            ui.separator();
-            let view = &mut tab.result_views.sets.entry(tab.set).or_default().grid;
-            let search_id =
-                ui.make_persistent_id(("result-search", workspace_key, tab.id, tab.set));
-            if ui
-                .add(
-                    TextEdit::singleline(&mut view.search)
-                        .id(search_id)
-                        .desired_width(145.0)
-                        .hint_text("筛选已加载行"),
-                )
-                .changed()
-            {
-                view.invalidate();
+                export = result_export_menu(ui, true);
+                filter_changed = view.prepare(set);
+                grid::controls(ui, set, view, copy_headers, mode != ResultMode::Grid, true);
+                filter_changed |= view.prepare(set);
             }
-            export = result_export_menu(ui, true);
-            filter_changed = view.prepare(set);
-            grid::controls(ui, set, view, copy_headers, mode != ResultMode::Grid, true);
-            filter_changed |= view.prepare(set);
-        }
-        if set.truncated {
-            ui.label(RichText::new("结果已截断").small().color(style::WARNING));
-        }
-        if report.omitted_sets > 0 {
-            ui.label(
-                RichText::new(format!("已省略 {} 个结果集", report.omitted_sets))
-                    .small()
-                    .color(style::WARNING),
-            );
-        }
+            if set.truncated {
+                ui.label(RichText::new("结果已截断").small().color(style::warning()));
+            }
+            if report.omitted_sets > 0 {
+                ui.label(
+                    RichText::new(format!("已省略 {} 个结果集", report.omitted_sets))
+                        .small()
+                        .color(style::warning()),
+                );
+            }
+        });
     });
     let set = &report.sets[tab.set];
     let statement = show_data_info
@@ -805,7 +999,7 @@ fn results(
         .unwrap_or(report.elapsed)
         .as_millis();
     if let Some(notice) = &set.notice {
-        ui.add(egui::Label::new(RichText::new(notice).small().color(style::MUTED)).truncate())
+        ui.add(egui::Label::new(RichText::new(notice).small().color(style::muted())).truncate())
             .on_hover_text(notice);
     }
     if set.columns.is_empty() {
@@ -921,15 +1115,13 @@ pub(super) fn request_current_result_export(workspace: &mut Workspace) -> bool {
 
 pub(super) fn result_export_menu(ui: &mut egui::Ui, enabled: bool) -> Option<transfer::ExportKind> {
     let mut selected = None;
-    ui.add_enabled_ui(enabled, |ui| {
-        ui.menu_button("导出", |ui| {
-            for format in RESULT_FORMATS {
-                if ui.button(format!("{}…", format.label())).clicked() {
-                    selected = Some(format);
-                    ui.close();
-                }
+    style::icon_menu_button(ui, style::ToolbarIcon::Export, enabled, "导出结果…", |ui| {
+        for format in RESULT_FORMATS {
+            if ui.button(format!("{}…", format.label())).clicked() {
+                selected = Some(format);
+                ui.close();
             }
-        });
+        }
     });
     selected
 }
@@ -972,7 +1164,7 @@ fn with_data_info(
         ui.painter().hline(
             rect.x_range(),
             rect.bottom() + gap * 0.5,
-            egui::Stroke::new(1.0_f32, style::BORDER),
+            egui::Stroke::new(1.0_f32, style::border()),
         );
         data_info_line(ui, summary, statement);
     } else {
@@ -993,7 +1185,7 @@ pub(super) fn data_info_line(ui: &mut egui::Ui, summary: &str, statement: Option
     ui.horizontal(|ui| {
         ui.set_min_height(height);
         if !summary.is_empty() {
-            ui.add(egui::Label::new(RichText::new(summary).small().color(style::MUTED)).truncate())
+            ui.add(egui::Label::new(RichText::new(summary).small().color(style::muted())).truncate())
                 .on_hover_text(summary);
         }
         let Some(statement) = statement.filter(|sql| !sql.trim().is_empty()) else {
@@ -1029,7 +1221,7 @@ pub(super) fn data_info_line(ui: &mut egui::Ui, summary: &str, statement: Option
         if chars.next().is_some() {
             preview.push('…');
         }
-        ui.add(egui::Label::new(RichText::new(preview).small().color(style::MUTED)).truncate());
+        ui.add(egui::Label::new(RichText::new(preview).small().color(style::muted())).truncate());
     });
 }
 
@@ -1062,7 +1254,7 @@ pub(super) fn result_export_dialog(
         ui.heading(heading);
         ui.label(format!("{row_label} {} 行。", input.row_count()));
         if input.truncated() {
-            ui.colored_label(style::ERROR, truncated);
+            ui.colored_label(style::error(), truncated);
         }
         options.format(ui, &RESULT_FORMATS);
         ui.separator();

@@ -207,7 +207,7 @@ fn table_data_ranges_page_show_all_and_stop_on_both_transports() {
             workspace.show_data_info = false;
             let hidden_info = render_row_editor(&mut workspace, &mut state);
             assert!(!renders_text(&hidden_info, &table_info));
-            assert!(renders_text(&hidden_info, "上一页"));
+            assert!(renders_text(&hidden_info, "12–18"));
             assert!(renders_text(&hidden_info, "18"));
             workspace.show_data_info = true;
             let mut editor = state.take().unwrap();
@@ -1396,11 +1396,20 @@ fn grid_frame(
     let mut action = None;
     let output = context.run(input(events), |context| {
         egui::CentralPanel::default().show(context, |ui| {
-            if let Some(next) =
-                editor
-                    .grid
-                    .show(ui, page, true, false, true, 320.0, None, false, &mut widths)
-            {
+            if let Some(next) = editor.grid.show(
+                ui,
+                page,
+                true,
+                false,
+                true,
+                false,
+                false,
+                &mut editor.draft,
+                320.0,
+                None,
+                false,
+                &mut widths,
+            ) {
                 action = Some(next);
             }
         });

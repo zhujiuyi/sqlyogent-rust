@@ -156,26 +156,36 @@ pub(super) fn dialog(
     let mut sql = Err(String::new());
     style::modal(ctx, egui::Id::new("create-table-fields")).show(ctx, |ui| {
         ui.set_width((rect.width() - 58.0).clamp(1.0, 1170.0));
-        ui.heading("新建表");
+        ui.horizontal(|ui| {
+            ui.heading("新建表");
+            ui.add_space(6.0);
+            style::badge(ui, &form.schema, style::accent(), style::accent_soft());
+        });
+        ui.add_space(8.0);
         egui::ScrollArea::vertical()
             .id_salt("create-table-body")
-            .max_height((rect.height() - 145.0).max(170.0))
+            .auto_shrink([false, false])
+            .max_height((rect.height() - 160.0).max(170.0))
             .show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(format!("数据库：{}", form.schema));
-                    ui.separator();
-                    ui.label("表名");
-                    ui.add(TextEdit::singleline(&mut form.name).desired_width(250.0));
+                style::subtle_card(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new("表名").color(style::muted()));
+                        ui.add(
+                            TextEdit::singleline(&mut form.name)
+                                .desired_width(240.0)
+                                .hint_text("输入新表名称"),
+                        );
+                        ui.separator();
+                        if ui.button("添加字段").clicked() {
+                            form.fields.push(Field::default());
+                        }
+                        ui.checkbox(&mut form.languages, "显示字符集和排序规则");
+                        ui.checkbox(&mut form.advanced, "高级表属性");
+                        ui.checkbox(&mut form.preview, "预览 SQL");
+                    });
                 });
-                ui.separator();
-                ui.horizontal_wrapped(|ui| {
-                    if ui.button("添加字段").clicked() {
-                        form.fields.push(Field::default());
-                    }
-                    ui.checkbox(&mut form.languages, "显示字符集和排序规则");
-                    ui.checkbox(&mut form.advanced, "高级表属性");
-                    ui.checkbox(&mut form.preview, "预览 SQL");
-                });
+                ui.add_space(8.0);
                 let mut remove = None;
                 egui::ScrollArea::both()
                     .id_salt("field-grid")
@@ -339,21 +349,18 @@ pub(super) fn dialog(
                         });
                 }
                 if let Err(error) = &sql {
-                    ui.label(RichText::new(error).color(style::MUTED));
+                    ui.label(RichText::new(error).color(style::muted()));
                 }
             });
-        ui.separator();
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        let can_create = sql.is_ok() && !ws.busy() && ws.server.is_some();
+        style::dialog_footer(ui, |ui| {
             create = ui
-                .add_enabled(
-                    sql.is_ok() && !ws.busy() && ws.server.is_some(),
-                    style::primary("创建表"),
-                )
+                .add_enabled(can_create, style::primary_enabled(can_create, "创建表"))
                 .clicked();
-            close = ui.button("取消").clicked();
             open = ui
                 .add_enabled(sql.is_ok() && !ws.busy(), Button::new("打开 SQL"))
                 .clicked();
+            close = ui.button("取消").clicked();
         });
     });
     let mut outcome = None;

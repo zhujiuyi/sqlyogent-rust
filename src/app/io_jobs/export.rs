@@ -70,7 +70,7 @@ impl Options {
             self.path = None;
         }
         if self.kind == ExportKind::ExcelXml {
-            ui.colored_label(style::MUTED, "最多 65,535 行数据，256 列。");
+            ui.colored_label(style::muted(), "最多 65,535 行数据，256 列。");
         }
     }
 
@@ -85,7 +85,7 @@ impl Options {
             .filter(|(index, _)| self.selected[*index])
             .count();
         ui.horizontal_wrapped(|ui| {
-            ui.colored_label(style::MUTED, format!("已选 {checked} / {total} 个字段"));
+            ui.colored_label(style::muted(), format!("已选 {checked} / {total} 个字段"));
             if ui.button("全选").clicked() {
                 for (index, _) in fields.clone() {
                     self.selected[index] = true;
@@ -149,7 +149,7 @@ impl Options {
                     ui.add(egui::Label::new(&label).truncate().selectable(true))
                         .on_hover_text(label);
                 } else {
-                    ui.colored_label(style::MUTED, "未选择输出文件");
+                    ui.colored_label(style::muted(), "未选择输出文件");
                 }
             });
         });
@@ -189,7 +189,7 @@ impl Options {
             return false;
         }
         if let Err(error) = target.validate() {
-            ui.colored_label(style::ERROR, error);
+            ui.colored_label(style::error(), error);
             return false;
         }
         true
@@ -252,9 +252,9 @@ fn csv_options(ui: &mut egui::Ui, options: &mut CsvOptions, allow_declared_width
     } else {
         r"分隔符可用 \t、\r、\n、\\。封闭符、转义符及 NULL 表示均可留空。"
     };
-    ui.label(RichText::new(hint).small().color(style::MUTED));
+    ui.label(RichText::new(hint).small().color(style::muted()));
     if let Err(error) = options.validate() {
-        ui.colored_label(style::ERROR, error);
+        ui.colored_label(style::error(), error);
         false
     } else {
         true
@@ -287,7 +287,7 @@ fn excel_options(ui: &mut egui::Ui, options: &mut ExcelOptions) {
         }
     });
     if options.text_limit.is_some() || options.decimal_places.is_some() {
-        ui.colored_label(style::MUTED, "导出时截去超限文本和小数位。");
+        ui.colored_label(style::muted(), "导出时截去超限文本和小数位。");
     }
 }
 
@@ -299,7 +299,7 @@ fn sql_options(ui: &mut egui::Ui, mode: &mut SqlExportMode) {
         ui.radio_value(mode, SqlExportMode::StructureAndData, "简化结构和数据");
     });
     if *mode != SqlExportMode::Data {
-        ui.colored_label(style::MUTED, "简化结构只保留所选字段名和数据类型。");
+        ui.colored_label(style::muted(), "简化结构只保留所选字段名和数据类型。");
     }
 }
 
@@ -386,10 +386,10 @@ impl TableForm {
                             .map(|(index, column)| (index, column.name.as_str()));
                         let fields = fields.collect::<Vec<_>>();
                         if self.loading {
-                            ui.colored_label(style::MUTED, "正在读取导出字段…");
+                            ui.colored_label(style::muted(), "正在读取导出字段…");
                             false
                         } else if let Some(error) = &self.error {
-                            ui.colored_label(style::ERROR, error);
+                            ui.colored_label(style::error(), error);
                             if ui
                                 .add_enabled(
                                     !workspace.busy() && workspace.server.is_some(),
@@ -401,11 +401,11 @@ impl TableForm {
                             }
                             false
                         } else if fields.is_empty() {
-                            ui.colored_label(style::MUTED, "当前格式没有可导出的字段。");
+                            ui.colored_label(style::muted(), "当前格式没有可导出的字段。");
                             false
                         } else {
                             if self.options.kind == ExportKind::Sql {
-                                ui.colored_label(style::MUTED, "SQL 导出可写字段。");
+                                ui.colored_label(style::muted(), "SQL 导出可写字段。");
                             }
                             self.options.field_picker(ui, fields.iter().copied())
                         }
@@ -426,7 +426,7 @@ impl TableForm {
                         .is_some_and(|server| server.http_tunnel)
                     {
                         ui.colored_label(
-                            style::MUTED,
+                            style::muted(),
                             "HTTP 分批读取，请在导出期间保持源数据和结构稳定。",
                         );
                     }

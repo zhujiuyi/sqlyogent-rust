@@ -330,9 +330,9 @@ pub(super) mod appearance {
 
     pub(in crate::app) fn frame(margin: egui::Margin) -> egui::Frame {
         egui::Frame::new()
-            .fill(style::SURFACE)
-            .stroke(Stroke::new(1.0_f32, style::BORDER))
-            .corner_radius(8)
+            .fill(style::surface())
+            .stroke(Stroke::new(1.0_f32, style::border()))
+            .corner_radius(10)
             .inner_margin(margin)
     }
 
@@ -362,18 +362,19 @@ pub(super) mod appearance {
     pub(in crate::app) fn canvas(painter: &Painter, viewport: Rect, origin: Pos2, zoom: f32) {
         painter.rect(
             viewport,
-            8,
-            style::PANEL,
-            Stroke::new(1.0_f32, style::BORDER),
+            10,
+            style::panel(),
+            Stroke::new(1.0_f32, style::border()),
             StrokeKind::Inside,
         );
         let dots = viewport.shrink(4.0).intersect(painter.clip_rect());
         let step = (24.0 * zoom).max(12.0);
+        let dot_color = style::border_strong().gamma_multiply(0.55);
         let mut x = dots.left() + (origin.x - dots.left()).rem_euclid(step);
         while x < dots.right() {
             let mut y = dots.top() + (origin.y - dots.top()).rem_euclid(step);
             while y < dots.bottom() {
-                painter.circle_filled(pos2(x, y), 0.75, style::BORDER);
+                painter.circle_filled(pos2(x, y), 0.9, dot_color);
                 y += step;
             }
             x += step;
@@ -395,19 +396,26 @@ pub(super) mod appearance {
         scale: f32,
         selected: bool,
     ) -> Rect {
-        let radius = (8.0 * scale).clamp(2.0, 16.0) as u8;
+        let radius = (10.0 * scale).clamp(3.0, 16.0) as u8;
         if scale >= 0.5 {
+            let shadow_alpha = if style::is_dark() {
+                if selected { 80 } else { 52 }
+            } else if selected {
+                28
+            } else {
+                16
+            };
             painter.add(
                 egui::epaint::Shadow {
-                    offset: [0, 2],
-                    blur: 8,
+                    offset: [0, 4],
+                    blur: if selected { 16 } else { 10 },
                     spread: 0,
-                    color: Color32::from_black_alpha(if selected { 18 } else { 12 }),
+                    color: Color32::from_black_alpha(shadow_alpha),
                 }
                 .as_shape(rect, radius),
             );
         }
-        painter.rect_filled(rect, radius, style::SURFACE);
+        painter.rect_filled(rect, radius, style::surface());
         let title = Rect::from_min_size(rect.min, vec2(rect.width(), title_height));
         painter.rect_filled(
             title,
@@ -418,20 +426,27 @@ pub(super) mod appearance {
                 se: 0,
             },
             if selected {
-                style::ACCENT_SOFT
+                style::accent_soft()
             } else {
-                style::PANEL
+                style::panel()
             },
         );
+        if selected {
+            let strip = Rect::from_min_size(
+                pos2(rect.left() + 6.0, rect.top() + 1.0),
+                vec2((rect.width() - 12.0).max(0.0), (2.5 * scale).clamp(1.5, 3.0)),
+            );
+            painter.rect_filled(strip, CornerRadius::same(2), style::accent());
+        }
         painter.hline(
             title.x_range(),
             title.bottom(),
-            Stroke::new(1.0_f32, style::BORDER),
+            Stroke::new(1.0_f32, style::border()),
         );
         let border = if selected {
-            Stroke::new(2.0_f32, style::ACCENT)
+            Stroke::new(1.8_f32, style::accent())
         } else {
-            Stroke::new(1.0_f32, style::BORDER)
+            Stroke::new(1.0_f32, style::border())
         };
         painter.rect_stroke(rect, radius, border, StrokeKind::Inside);
         title
@@ -490,7 +505,7 @@ pub(super) mod appearance {
         }
 
         pub(in crate::app) fn paint(self, painter: &Painter, center: Pos2, scale: f32) {
-            let stroke = Stroke::new((1.2 * scale).max(0.65), style::ACCENT);
+            let stroke = Stroke::new((1.2 * scale).max(0.65), style::accent());
             match self {
                 Self::Primary => {
                     painter.circle_stroke(center + vec2(-2.0, 0.0) * scale, 2.5 * scale, stroke);
@@ -535,7 +550,7 @@ pub(super) mod appearance {
                     bottom - vec2(length, 0.0) * scale,
                     bottom - vec2(0.0, length) * scale,
                 ],
-                Stroke::new(1.0_f32, style::MUTED),
+                Stroke::new(1.0_f32, style::muted()),
             );
         }
     }
@@ -552,21 +567,21 @@ pub(super) mod appearance {
         }
         let x = bounds.right() - 4.0 * zoom;
         let y = |row: usize| bounds.top() + row as f32 / total as f32 * bounds.height();
-        painter.vline(x, bounds.y_range(), Stroke::new(2.0 * zoom, style::BORDER));
+        painter.vline(x, bounds.y_range(), Stroke::new(2.0 * zoom, style::border()));
         painter.vline(
             x,
             y(rows.start)..=y(rows.end),
-            Stroke::new(2.0 * zoom, style::MUTED),
+            Stroke::new(2.0 * zoom, style::muted()),
         );
     }
 
     pub(in crate::app) fn link(painter: &Painter, points: [Pos2; 4], stroke: Stroke) {
         painter.add(egui::Shape::line(
             points.to_vec(),
-            Stroke::new(stroke.width + 2.0, style::SURFACE),
+            Stroke::new(stroke.width + 2.0, style::surface()),
         ));
         painter.add(egui::Shape::line(points.to_vec(), stroke));
-        painter.circle(points[0], 2.8, style::SURFACE, stroke);
+        painter.circle(points[0], 2.8, style::surface(), stroke);
     }
 
     pub(in crate::app) fn sql_preview(ui: &mut egui::Ui, mut sql: &str, rows: usize) {

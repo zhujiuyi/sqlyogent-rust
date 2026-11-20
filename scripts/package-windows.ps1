@@ -6,10 +6,14 @@ $cargoExe = if ($cargoCommand) {
 } else {
     Join-Path ([Environment]::GetFolderPath('UserProfile')) '.cargo\bin\cargo.exe'
 }
+$cargoBinDir = Split-Path -Parent $cargoExe
+if ($cargoBinDir -and (($env:Path -split ';') -notcontains $cargoBinDir)) {
+    $env:Path = "$cargoBinDir;$env:Path"
+}
 
 Push-Location -LiteralPath $projectRoot
 try {
-    & $cargoExe build --locked --release --bins --target x86_64-pc-windows-msvc
+    & $cargoExe build --locked --release --bin harbor-sql --target x86_64-pc-windows-msvc
     if ($LASTEXITCODE -ne 0) {
         throw "Rust 编译失败（退出码 $LASTEXITCODE）。"
     }
@@ -19,11 +23,7 @@ try {
     New-Item -ItemType Directory -Path $dist -Force | Out-Null
     $destination = Join-Path $dist 'HarborSQL.exe'
     Copy-Item -LiteralPath $binary -Destination $destination -Force
-    $jobBinary = Join-Path $targetRoot 'x86_64-pc-windows-msvc\release\harbor-sql-job.exe'
-    $jobDestination = Join-Path $dist 'HarborSQL-Job.exe'
-    Copy-Item -LiteralPath $jobBinary -Destination $jobDestination -Force
     Write-Output $destination
-    Write-Output $jobDestination
 } finally {
     Pop-Location
 }

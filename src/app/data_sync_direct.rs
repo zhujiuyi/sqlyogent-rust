@@ -168,7 +168,7 @@ impl Direct {
         );
         ui.checkbox(&mut fields.both, "两端都使用此条件");
         if !fields.both && !fields.predicate.trim().is_empty() {
-            ui.label(RichText::new("只筛选发送端时，保留接收端其他行。").color(style::MUTED));
+            ui.label(RichText::new("只筛选发送端时，保留接收端其他行。").color(style::muted()));
         }
         ui.label("用于判断记录是否有差异的字段");
         ui.add(
@@ -610,7 +610,7 @@ impl Direct {
                     RichText::new(
                         "HTTP 目标执行镜像删除时，需要账户拥有全局 SELECT 权限，以核对外键。",
                     )
-                    .color(style::MUTED),
+                    .color(style::muted()),
                 );
             }
             self.confirm_plan(ui, from, to, ready, all_native, grouped)
@@ -633,7 +633,7 @@ impl Direct {
             ));
         }
         if let Some(error) = &self.error {
-            ui.colored_label(style::ERROR, error);
+            ui.colored_label(style::error(), error);
         }
         if start {
             self.request(target, workspaces);
@@ -696,11 +696,11 @@ impl Direct {
                 RichText::new(
                     "SQL 按写入端分别保存。单独回放脚本时，请使用能保持会话与事务的连接，核对结果后手动提交。",
                 )
-                .color(style::MUTED),
+                .color(style::muted()),
             );
             if self.continue_on_row_error {
                 ui.label(
-                    RichText::new("跳过出错行的设置在程序直接执行同步时生效。").color(style::MUTED),
+                    RichText::new("跳过出错行的设置在程序直接执行同步时生效。").color(style::muted()),
                 );
             }
         }
@@ -721,7 +721,7 @@ impl Direct {
                 }
             };
             if let Some(note) = note {
-                ui.label(RichText::new(note).color(style::MUTED));
+                ui.label(RichText::new(note).color(style::muted()));
             }
         }
         let deletions = from.deleted + to.deleted;
@@ -785,11 +785,11 @@ fn show_commit(
 ) {
     ui.label(format!("已确认提交。{}", sync_write_summary(from, to)));
     if let Some(error) = stopped {
-        ui.colored_label(style::ERROR, error);
+        ui.colored_label(style::error(), error);
     }
     if let Some(side) = uncertain {
         ui.colored_label(
-            style::ERROR,
+            style::error(),
             format!("无法确认{}提交结果。", sync_side_label(side)),
         );
     }
@@ -799,7 +799,7 @@ fn show_row_errors(ui: &mut egui::Ui, skipped_rows: u64, errors: &[SyncRowError]
     if skipped_rows == 0 {
         return;
     }
-    ui.colored_label(style::ERROR, format!("跳过 {skipped_rows} 行。"));
+    ui.colored_label(style::error(), format!("跳过 {skipped_rows} 行。"));
     if errors.is_empty() {
         return;
     }

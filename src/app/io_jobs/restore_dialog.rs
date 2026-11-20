@@ -132,25 +132,25 @@ impl RestoreForm {
                 } else {
                     "等待执行"
                 };
-                (None, status.into(), style::MUTED, false)
+                (None, status.into(), style::muted(), false)
             }
             Run::Running => (
                 ws.restore_progress,
                 ws.restore_status()
                     .unwrap_or_else(|| "正在等待还原结果…".into()),
-                style::INK,
+                style::ink(),
                 false,
             ),
             Run::Finished(result) => {
                 let (status, color, complete) = match &result.outcome {
                     RestoreOutcome::Completed(count) => (
                         format!("还原完成，共执行 {count} 条语句。"),
-                        style::SUCCESS,
+                        style::success(),
                         true,
                     ),
-                    RestoreOutcome::Cancelled => ("已停止还原。".into(), style::MUTED, false),
+                    RestoreOutcome::Cancelled => ("已停止还原。".into(), style::muted(), false),
                     RestoreOutcome::Failed(detail) => {
-                        (format!("还原失败。{detail}"), style::ERROR, false)
+                        (format!("还原失败。{detail}"), style::error(), false)
                     }
                 };
                 (result.progress, status, color, complete)
@@ -200,10 +200,10 @@ impl RestoreForm {
                     } else {
                         ui.label(format!("起始数据库 · {}", self.schema));
                     }
-                    ui.colored_label(style::MUTED, "脚本中的 USE 或带库名的对象可以指定其他数据库。");
-                    ui.colored_label(style::WARNING, "还原会在当前服务器执行脚本，已提交的操作无法整体撤销。");
+                    ui.colored_label(style::muted(), "脚本中的 USE 或带库名的对象可以指定其他数据库。");
+                    ui.colored_label(style::warning(), "还原会在当前服务器执行脚本，已提交的操作无法整体撤销。");
                     if ws.server.as_ref().is_some_and(|server| server.http_tunnel) {
-                        ui.colored_label(style::MUTED, "HTTP 隧道按文件提交批次，编码后的单次请求上限为 64 MiB。");
+                        ui.colored_label(style::muted(), "HTTP 隧道按文件提交批次，编码后的单次请求上限为 64 MiB。");
                     }
                 });
                 form_section(ui, "还原来源", |ui| {
@@ -228,7 +228,7 @@ impl RestoreForm {
                         let path = file.display().to_string();
                         ui.add(egui::Label::new(&path).truncate().selectable(true)).on_hover_text(path);
                     } else {
-                        ui.colored_label(style::MUTED, "请选择 SQL 文件或分对象备份目录。");
+                        ui.colored_label(style::muted(), "请选择 SQL 文件或分对象备份目录。");
                     }
                     ui.add_enabled_ui(!running && !completed && self.file.is_some(), |ui| {
                         ui.horizontal_wrapped(|ui| {
@@ -247,7 +247,7 @@ impl RestoreForm {
                     });
                 });
                 if finished && !completed {
-                    ui.colored_label(style::WARNING, PARTIAL_WARNING);
+                    ui.colored_label(style::warning(), PARTIAL_WARNING);
                 }
                 if failed {
                     ui.horizontal_wrapped(|ui| {
@@ -258,8 +258,8 @@ impl RestoreForm {
                     });
                     if let Some(feedback) = &self.report_feedback {
                         match feedback {
-                            Ok(path) => ui.colored_label(style::SUCCESS, format!("报告已保存到 {}", path.display())),
-                            Err(error) => ui.colored_label(style::ERROR, error),
+                            Ok(path) => ui.colored_label(style::success(), format!("报告已保存到 {}", path.display())),
+                            Err(error) => ui.colored_label(style::error(), error),
                         };
                     }
                 }

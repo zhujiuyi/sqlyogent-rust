@@ -103,78 +103,100 @@ impl Dialog {
     }
 
     fn select_tables(&mut self, ui: &mut egui::Ui, tables: &[&DbObject], max_height: f32) {
-        ui.horizontal(|ui| {
-            if ui.button("全选").clicked() {
-                self.selected
-                    .extend(tables.iter().map(|table| table.name.clone()));
-            }
-            if ui.button("清除选择").clicked() {
-                self.selected.clear();
-            }
-            ui.label(format!(
-                "已选 {} / {} 张表",
-                self.selected.len(),
-                tables.len()
-            ));
-        });
-        egui::ScrollArea::vertical()
-            .id_salt(("diagnostic-tables", &self.schema))
-            .max_height(max_height)
-            .show_rows(
-                ui,
-                ui.spacing().interact_size.y,
-                tables.len(),
-                |ui, rows| {
-                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                    for table in &tables[rows] {
-                        let mut checked = self.selected.contains(&table.name);
-                        if ui
-                            .checkbox(&mut checked, &table.name)
-                            .on_hover_text(&table.name)
-                            .changed()
-                        {
-                            if checked {
-                                self.selected.insert(table.name.clone());
-                            } else {
-                                self.selected.remove(&table.name);
-                            }
-                        }
+        let count_text = format!("已选 {} / {}", self.selected.len(), tables.len());
+        style::section_card_with_header(
+            ui,
+            "要诊断的数据表",
+            |ui| {
+                style::badge(ui, count_text, style::accent(), style::accent_soft());
+            },
+            |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button("全选").clicked() {
+                        self.selected
+                            .extend(tables.iter().map(|table| table.name.clone()));
                     }
-                },
-            );
+                    if ui.button("清除选择").clicked() {
+                        self.selected.clear();
+                    }
+                });
+                ui.add_space(4.0);
+                egui::ScrollArea::vertical()
+                    .id_salt(("diagnostic-tables", &self.schema))
+                    .auto_shrink([false, false])
+                    .max_height(max_height)
+                    .show_rows(
+                        ui,
+                        ui.spacing().interact_size.y,
+                        tables.len(),
+                        |ui, rows| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                            for table in &tables[rows] {
+                                let mut checked = self.selected.contains(&table.name);
+                                if ui
+                                    .checkbox(&mut checked, &table.name)
+                                    .on_hover_text(&table.name)
+                                    .changed()
+                                {
+                                    if checked {
+                                        self.selected.insert(table.name.clone());
+                                    } else {
+                                        self.selected.remove(&table.name);
+                                    }
+                                }
+                            }
+                        },
+                    );
+            },
+        );
     }
 
     fn choose_action(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            for action in TableAction::DIAGNOSTICS {
-                ui.radio_value(&mut self.action, action, action.label());
-            }
-        });
-        ui.horizontal_wrapped(|ui| match self.action {
-            TableAction::Check => {
-                for option in CheckOption::ALL {
-                    let mut checked = self.options.checks.contains(&option);
-                    if ui.checkbox(&mut checked, option.label()).changed() {
-                        if checked {
-                            self.options.checks.push(option);
-                        } else {
-                            self.options.checks.retain(|value| *value != option);
+        style::section_card(ui, "诊断操作与选项", |ui| {
+            ui.label(RichText::new("操作类型").small().color(style::muted()));
+            ui.add_space(2.0);
+            ui.horizontal_wrapped(|ui| {
+                for action in TableAction::DIAGNOSTICS {
+                    ui.radio_value(&mut self.action, action, action.label());
+                }
+            });
+            ui.add_space(6.0);
+            ui.separator();
+            ui.add_space(6.0);
+            ui.label(RichText::new("执行选项").small().color(style::muted()));
+            ui.add_space(2.0);
+            match self.action {
+                TableAction::Check => {
+                    for option in CheckOption::ALL {
+                        let mut checked = self.options.checks.contains(&option);
+                        if ui.checkbox(&mut checked, option.label()).changed() {
+                            if checked {
+                                self.options.checks.push(option);
+                            } else {
+                                self.options.checks.retain(|value| *value != option);
+                            }
                         }
                     }
                 }
+                TableAction::Analyze => local_option(ui, &mut self.options.analyze_local),
+                TableAction::Optimize => local_option(ui, &mut self.options.optimize_local),
+                TableAction::Repair => {
+                    ui.checkbox(&mut self.options.quick_repair, "仅修复索引（QUICK）");
+                    ui.checkbox(
+                        &mut self.options.extended_repair,
+                        "逐行重建索引（EXTENDED）",
+                    );
+                    ui.checkbox(&mut self.options.use_frm, "按表定义重建索引（USE_FRM）");
+                    local_option(ui, &mut self.options.repair_local);
+                }
+                TableAction::Truncate | TableAction::Drop => unreachable!(),
             }
-            TableAction::Analyze => local_option(ui, &mut self.options.analyze_local),
-            TableAction::Optimize => local_option(ui, &mut self.options.optimize_local),
-            TableAction::Repair => {
-                ui.checkbox(&mut self.options.quick_repair, "仅修复索引（QUICK）");
-                ui.checkbox(
-                    &mut self.options.extended_repair,
-                    "逐行重建索引（EXTENDED）",
-                );
-                ui.checkbox(&mut self.options.use_frm, "按表定义重建索引（USE_FRM）");
-                local_option(ui, &mut self.options.repair_local);
-            }
-            TableAction::Truncate | TableAction::Drop => unreachable!(),
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new("执行期间可能暂时锁定所选表。")
+                    .small()
+                    .color(style::muted()),
+            );
         });
     }
 }
@@ -211,41 +233,60 @@ pub(super) fn dialog(
     let size = ctx.content_rect().size();
     let response =
         crate::app::style::modal(ctx, egui::Id::new("table-diagnostics")).show(ctx, |ui| {
-            ui.set_width((size.x - 64.0).clamp(320.0, 630.0));
-            ui.heading("表诊断");
-            ui.label(RichText::new(&ws.label).color(style::MUTED));
-            ui.separator();
+            let width = (size.x - 64.0).clamp(400.0, 700.0);
+            ui.set_width(width);
+            ui.horizontal(|ui| {
+                ui.heading("表诊断");
+                ui.add_space(6.0);
+                style::badge(ui, &ws.label, style::muted(), style::chrome());
+            });
+            ui.add_space(6.0);
             if ws.server.is_none() {
-                ui.label("连接已断开。");
-                return ui.button("关闭").clicked().then_some(Action::Close);
+                style::banner(ui, "连接已断开。", style::error(), style::error_soft());
+                return style::dialog_footer(ui, |ui| {
+                    ui.button("关闭").clicked().then_some(Action::Close)
+                });
             }
             if let Some(sql) = &form.confirmation {
-                ui.label(match form.action {
+                let warn = match form.action {
                     TableAction::Optimize => "优化可能重建表并暂时阻塞写入。",
                     TableAction::Repair => "修复可能造成数据丢失。请先备份所选表。",
                     _ => unreachable!(),
-                });
+                };
+                style::banner(ui, warn, style::error(), style::error_soft());
                 if form.action == TableAction::Repair && form.options.use_frm {
-                    ui.label("仅在索引文件缺失或文件头损坏时使用 USE_FRM。");
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new("仅在索引文件缺失或文件头损坏时使用 USE_FRM。")
+                            .small()
+                            .color(style::muted()),
+                    );
                 }
+                ui.add_space(8.0);
                 show_sql(ui, sql);
-                let mut action = None;
-                ui.horizontal(|ui| {
-                    if ui.button("返回选择").clicked() {
-                        form.confirmation = None;
-                    } else if ui
+                return style::dialog_footer(ui, |ui| {
+                    let can_run = !ws.busy();
+                    if ui
                         .add_enabled(
-                            !ws.busy(),
-                            style::primary(&format!("确认{}", form.action.label())),
+                            can_run,
+                            style::primary_enabled(can_run, &format!("确认{}", form.action.label())),
                         )
                         .clicked()
                     {
-                        action = form.confirmation.take().map(Action::Run);
+                        form.confirmation.take().map(Action::Run)
+                    } else if ui.button("返回选择").clicked() {
+                        form.confirmation = None;
+                        None
+                    } else {
+                        None
                     }
                 });
-                return action;
             }
-            form.choose_schema(ui, &ws.schemas);
+            style::subtle_card(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                form.choose_schema(ui, &ws.schemas);
+            });
+            ui.add_space(10.0);
             let mut sql = None;
             match &form.catalog {
                 Catalog::Ready => {
@@ -257,12 +298,28 @@ pub(super) fn dialog(
                         .filter(|object| object.kind == ObjectKind::Table)
                         .collect();
                     if tables.is_empty() {
-                        ui.label("此数据库没有可选的数据表。");
+                        style::subtle_card(egui::Margin::same(14)).show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.label(
+                                RichText::new("此数据库没有可选的数据表。").color(style::muted()),
+                            );
+                        });
                     } else {
-                        form.select_tables(ui, &tables, (size.y * 0.28).clamp(90.0, 220.0));
-                        ui.separator();
-                        form.choose_action(ui);
-                        ui.label(RichText::new("执行期间可能暂时锁定所选表。").color(style::MUTED));
+                        let list_h = (size.y * 0.30).clamp(130.0, 240.0);
+                        if width >= 540.0 {
+                            style::split_two_columns_with(
+                                ui,
+                                0.52,
+                                12.0,
+                                form,
+                                |ui, form| form.select_tables(ui, &tables, list_h),
+                                |ui, form| form.choose_action(ui),
+                            );
+                        } else {
+                            form.select_tables(ui, &tables, list_h);
+                            ui.add_space(8.0);
+                            form.choose_action(ui);
+                        }
                         sql = form.options.sql(
                             form.action,
                             &form.schema,
@@ -272,19 +329,21 @@ pub(super) fn dialog(
                                 .map(|table| table.name.as_str()),
                         );
                         if let Some(sql) = &sql {
+                            ui.add_space(8.0);
                             show_sql(ui, sql);
                         }
                     }
                 }
                 Catalog::Failed(error) => {
-                    ui.colored_label(style::ERROR, error);
+                    style::banner(ui, error, style::error(), style::error_soft());
+                    ui.add_space(6.0);
                     if ui.button("重新读取").clicked() {
                         form.catalog = Catalog::Waiting;
                         ctx.request_repaint();
                     }
                 }
                 Catalog::Waiting if form.schema.is_empty() => {
-                    ui.label("请选择数据库。");
+                    ui.label(RichText::new("请选择数据库。").color(style::muted()));
                 }
                 Catalog::Waiting | Catalog::Loading => {
                     ui.horizontal(|ui| {
@@ -297,22 +356,10 @@ pub(super) fn dialog(
                     });
                 }
             }
-            ui.separator();
-            ui.horizontal(|ui| {
-                if ui.button("取消").clicked() {
-                    return Some(Action::Close);
-                }
+            let can_run = sql.is_some() && !ws.busy();
+            style::dialog_footer(ui, |ui| {
                 if ui
-                    .add_enabled(sql.is_some(), egui::Button::new("在编辑器中打开"))
-                    .clicked()
-                {
-                    return sql.map(Action::OpenSql);
-                }
-                if ui
-                    .add_enabled(
-                        sql.is_some() && !ws.busy(),
-                        style::primary(form.action.label()),
-                    )
+                    .add_enabled(can_run, style::primary_enabled(can_run, form.action.label()))
                     .clicked()
                 {
                     if matches!(form.action, TableAction::Optimize | TableAction::Repair) {
@@ -321,9 +368,17 @@ pub(super) fn dialog(
                     }
                     return sql.map(Action::Run);
                 }
+                if ui
+                    .add_enabled(sql.is_some(), egui::Button::new("在编辑器中打开"))
+                    .clicked()
+                {
+                    return sql.map(Action::OpenSql);
+                }
+                if ui.button("取消").clicked() {
+                    return Some(Action::Close);
+                }
                 None
             })
-            .inner
         });
     match response.inner {
         Some(Action::Run(sql)) => {

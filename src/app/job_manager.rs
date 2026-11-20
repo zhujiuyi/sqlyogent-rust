@@ -276,192 +276,278 @@ impl Manager {
         }
         let selected = self.selected_entry().cloned();
         let busy = self.busy();
-        let width = (ctx.content_rect().width() - 48.0).clamp(340.0, 680.0);
+        let width = (ctx.content_rect().width() - 48.0).clamp(400.0, 820.0);
         let height = ctx.content_rect().height();
         let response = style::modal(ctx, egui::Id::new("sja-job-manager")).show(ctx, |ui| {
             ui.set_width(width);
             // The modal starts layout with its previous frame's size.
             ui.set_max_height(height);
             let mut action = None;
-            ui.heading("作业管理");
+            ui.horizontal(|ui| {
+                ui.heading("作业管理");
+                ui.add_space(6.0);
+                style::badge(
+                    ui,
+                    format!("{} 个作业", self.entries.len()),
+                    style::accent(),
+                    style::accent_soft(),
+                );
+            });
+            ui.add_space(8.0);
+            style::subtle_card(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .add_enabled(!busy, style::primary_enabled(!busy, "新建备份作业…"))
+                        .clicked()
+                    {
+                        action = Some(Action::NewBackup);
+                    }
+                    if ui
+                        .add_enabled(!busy, egui::Button::new("新建数据同步作业…"))
+                        .clicked()
+                    {
+                        action = Some(Action::NewDataSync);
+                    }
+                    if ui
+                        .add_enabled(!busy, egui::Button::new("新建 SQL 作业…"))
+                        .clicked()
+                    {
+                        action = Some(Action::NewNotification);
+                    }
+                    if ui
+                        .add_enabled(!busy, egui::Button::new("新建外部数据导入作业…"))
+                        .clicked()
+                    {
+                        action = Some(Action::NewOdbc);
+                    }
+                    if ui
+                        .add_enabled(!busy, egui::Button::new("登记作业 JSON…"))
+                        .clicked()
+                    {
+                        action = Some(Action::Add);
+                    }
+                    if ui
+                        .add_enabled(!busy, egui::Button::new("导入 SQLyog 作业 XML…"))
+                        .clicked()
+                    {
+                        action = Some(Action::ImportLegacy);
+                    }
+                });
+            });
+            ui.add_space(8.0);
             egui::ScrollArea::vertical()
                 .id_salt("job-manager-body")
-                .max_height((height - 110.0).max(100.0))
+                .max_height((height - 190.0).max(120.0))
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        if ui
-                            .add_enabled(!busy, style::primary("新建备份作业…"))
-                            .clicked()
-                        {
-                            action = Some(Action::NewBackup);
-                        }
-                        if ui
-                            .add_enabled(!busy, egui::Button::new("新建数据同步作业…"))
-                            .clicked()
-                        {
-                            action = Some(Action::NewDataSync);
-                        }
-                        if ui
-                            .add_enabled(!busy, egui::Button::new("新建 SQL 作业…"))
-                            .clicked()
-                        {
-                            action = Some(Action::NewNotification);
-                        }
-                        if ui
-                            .add_enabled(!busy, egui::Button::new("新建外部数据导入作业…"))
-                            .clicked()
-                        {
-                            action = Some(Action::NewOdbc);
-                        }
-                        if ui
-                            .add_enabled(!busy, egui::Button::new("登记作业 JSON…"))
-                            .clicked()
-                        {
-                            action = Some(Action::Add);
-                        }
-                        if ui
-                            .add_enabled(!busy, egui::Button::new("导入 SQLyog 作业 XML…"))
-                            .clicked()
-                        {
-                            action = Some(Action::ImportLegacy);
-                        }
-                    });
-                    style::pane(egui::Margin::symmetric(9, 7))
-                        .corner_radius(8.0)
-                        .show(ui, |ui| {
-                            ui.set_min_width(ui.available_width());
-                            if self.entries.is_empty() {
-                                ui.label(egui::RichText::new("暂无作业").color(style::MUTED));
+                    let list_panel = |ui: &mut egui::Ui,
+                                      this: &Self,
+                                      action: &mut Option<Action>| {
+                        style::section_card(ui, "已登记作业", |ui| {
+                            if this.entries.is_empty() {
+                                ui.label(
+                                    egui::RichText::new("暂无作业，可从上方新建或登记。")
+                                        .small()
+                                        .color(style::muted()),
+                                );
                             } else {
                                 egui::ScrollArea::vertical()
-                                    .max_height((height * 0.25).min(180.0))
+                                    .id_salt("job-manager-entries")
+                                    .auto_shrink([false, false])
+                                    .max_height((height * 0.36).clamp(150.0, 280.0))
                                     .show(ui, |ui| {
-                                        for entry in &self.entries {
+                                        for entry in &this.entries {
                                             let current =
-                                                self.selected.as_ref() == Some(&entry.path);
+                                                this.selected.as_ref() == Some(&entry.path);
+                                            let label = if current {
+                                                egui::RichText::new(&entry.name)
+                                                    .strong()
+                                                    .color(style::accent())
+                                            } else {
+                                                egui::RichText::new(&entry.name)
+                                                    .color(style::ink())
+                                            };
                                             if ui
-                                                .add(
-                                                    egui::Button::selectable(current, &entry.name)
+                                                .add_sized(
+                                                    [ui.available_width(), 26.0],
+                                                    egui::Button::selectable(current, label)
                                                         .truncate(),
                                                 )
                                                 .on_hover_text(entry.path.display().to_string())
                                                 .clicked()
                                             {
-                                                action = Some(Action::Select(entry.path.clone()));
+                                                *action = Some(Action::Select(entry.path.clone()));
                                             }
                                         }
                                     });
                             }
                         });
-                    if let Some(entry) = selected {
-                        ui.separator();
-                        let path = entry.path.display().to_string();
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(&path).small().color(style::MUTED),
-                            )
-                            .truncate(),
-                        )
-                        .on_hover_text(&path);
-                        ui.horizontal(|ui| {
-                            ui.label("显示名称");
+                    };
+                    let detail_panel = |ui: &mut egui::Ui,
+                                        this: &mut Self,
+                                        selected: Option<Entry>,
+                                        action: &mut Option<Action>| {
+                        style::section_card(ui, "作业详情与调度", |ui| {
+                            let Some(entry) = selected else {
+                                ui.label(
+                                    egui::RichText::new("在左侧选择一个作业以查看路径、执行或配置系统调度。")
+                                        .small()
+                                        .color(style::muted()),
+                                );
+                                return;
+                            };
+                            let path = entry.path.display().to_string();
                             ui.add(
-                                TextEdit::singleline(&mut self.name)
-                                    .char_limit(128)
-                                    .desired_width(220.0),
-                            );
-                            let changed =
-                                !self.name.trim().is_empty() && self.name.trim() != entry.name;
-                            if ui
-                                .add_enabled(changed && !busy, egui::Button::new("保存名称"))
-                                .clicked()
-                            {
-                                action = Some(Action::Rename);
-                            }
-                            if ui
-                                .add_enabled(
-                                    !busy,
-                                    egui::Button::new(
-                                        egui::RichText::new("从列表移除").color(style::ERROR),
-                                    ),
+                                egui::Label::new(
+                                    egui::RichText::new(&path)
+                                        .small()
+                                        .monospace()
+                                        .color(style::muted()),
                                 )
-                                .clicked()
-                            {
-                                action = Some(Action::Remove);
-                            }
-                        });
-                        ui.horizontal(|ui| {
-                            if ui
-                                .add_enabled(!busy, egui::Button::new("编辑作业…"))
-                                .clicked()
-                            {
-                                action = Some(Action::Edit);
-                            }
-                            if ui
-                                .add_enabled(!busy, egui::Button::new("编辑 JSON…"))
-                                .clicked()
-                            {
-                                action = Some(Action::EditJson);
-                            }
-                            if ui.add_enabled(!busy, egui::Button::new("检查")).clicked() {
-                                action = Some(Action::Start(Operation::Check));
-                            }
-                            if ui.add_enabled(!busy, style::primary("运行一次")).clicked() {
-                                action = Some(Action::Start(Operation::Run));
-                            }
-                        });
-                        if schedule::SUPPORTED {
-                            ui.separator();
-                            ui.strong("系统调度");
-                            if let Some(status) = &self.schedule_status {
-                                ui.label(status.label());
-                            }
-                            ui.add_enabled_ui(!busy, |ui| self.schedule_fields.show(ui));
-                            ui.horizontal_wrapped(|ui| {
-                                let trigger = self.schedule_fields.trigger();
+                                .truncate(),
+                            )
+                            .on_hover_text(&path);
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("显示名称").color(style::muted()));
+                                ui.add(
+                                    TextEdit::singleline(&mut this.name)
+                                        .char_limit(128)
+                                        .desired_width((ui.available_width() - 180.0).max(120.0)),
+                                );
+                                let changed = !this.name.trim().is_empty()
+                                    && this.name.trim() != entry.name;
                                 if ui
-                                    .add_enabled(
-                                        !busy && trigger.is_some(),
-                                        egui::Button::new("保存调度"),
-                                    )
-                                    .on_hover_text(format!("关闭 {APP_NAME} 后仍由系统触发。"))
-                                    .clicked()
-                                    && let Some(trigger) = trigger
-                                {
-                                    action = Some(Action::Start(Operation::Schedule(
-                                        schedule::Change::Save(trigger),
-                                    )));
-                                }
-                                if ui
-                                    .add_enabled(!busy, egui::Button::new("刷新状态"))
+                                    .add_enabled(changed && !busy, egui::Button::new("保存名称"))
                                     .clicked()
                                 {
-                                    action = Some(Action::Start(Operation::Schedule(
-                                        schedule::Change::Inspect,
-                                    )));
-                                }
-                                if ui
-                                    .add_enabled(
-                                        !busy
-                                            && matches!(
-                                                self.schedule_status,
-                                                Some(schedule::Status::Registered { .. })
-                                            ),
-                                        egui::Button::new("取消调度"),
-                                    )
-                                    .clicked()
-                                {
-                                    action = Some(Action::Start(Operation::Schedule(
-                                        schedule::Change::Cancel,
-                                    )));
+                                    *action = Some(Action::Rename);
                                 }
                             });
-                            ui.add(egui::Label::new(schedule::ACCOUNT_NOTE).wrap());
-                        }
+                            ui.add_space(6.0);
+                            ui.horizontal_wrapped(|ui| {
+                                if ui
+                                    .add_enabled(!busy, style::primary_enabled(!busy, "运行一次"))
+                                    .clicked()
+                                {
+                                    *action = Some(Action::Start(Operation::Run));
+                                }
+                                if ui
+                                    .add_enabled(!busy, egui::Button::new("编辑作业…"))
+                                    .clicked()
+                                {
+                                    *action = Some(Action::Edit);
+                                }
+                                if ui
+                                    .add_enabled(!busy, egui::Button::new("编辑 JSON…"))
+                                    .clicked()
+                                {
+                                    *action = Some(Action::EditJson);
+                                }
+                                if ui.add_enabled(!busy, egui::Button::new("检查")).clicked() {
+                                    *action = Some(Action::Start(Operation::Check));
+                                }
+                                if ui
+                                    .add_enabled(
+                                        !busy,
+                                        egui::Button::new(
+                                            egui::RichText::new("从列表移除").color(style::error()),
+                                        ),
+                                    )
+                                    .clicked()
+                                {
+                                    *action = Some(Action::Remove);
+                                }
+                            });
+                            if schedule::SUPPORTED {
+                                ui.add_space(8.0);
+                                ui.separator();
+                                ui.add_space(6.0);
+                                ui.label(
+                                    egui::RichText::new("系统调度")
+                                        .strong()
+                                        .color(style::ink()),
+                                );
+                                if let Some(status) = &this.schedule_status {
+                                    ui.label(
+                                        egui::RichText::new(status.label())
+                                            .small()
+                                            .color(style::muted()),
+                                    );
+                                }
+                                ui.add_enabled_ui(!busy, |ui| this.schedule_fields.show(ui));
+                                ui.add_space(4.0);
+                                ui.horizontal_wrapped(|ui| {
+                                    let trigger = this.schedule_fields.trigger();
+                                    if ui
+                                        .add_enabled(
+                                            !busy && trigger.is_some(),
+                                            egui::Button::new("保存调度"),
+                                        )
+                                        .on_hover_text(format!(
+                                            "关闭 {APP_NAME} 后仍由系统触发。"
+                                        ))
+                                        .clicked()
+                                        && let Some(trigger) = trigger
+                                    {
+                                        *action = Some(Action::Start(Operation::Schedule(
+                                            schedule::Change::Save(trigger),
+                                        )));
+                                    }
+                                    if ui
+                                        .add_enabled(!busy, egui::Button::new("刷新状态"))
+                                        .clicked()
+                                    {
+                                        *action = Some(Action::Start(Operation::Schedule(
+                                            schedule::Change::Inspect,
+                                        )));
+                                    }
+                                    if ui
+                                        .add_enabled(
+                                            !busy
+                                                && matches!(
+                                                    this.schedule_status,
+                                                    Some(schedule::Status::Registered { .. })
+                                                ),
+                                            egui::Button::new("取消调度"),
+                                        )
+                                        .clicked()
+                                    {
+                                        *action = Some(Action::Start(Operation::Schedule(
+                                            schedule::Change::Cancel,
+                                        )));
+                                    }
+                                });
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(schedule::ACCOUNT_NOTE)
+                                            .small()
+                                            .color(style::muted()),
+                                    )
+                                    .wrap(),
+                                );
+                            }
+                        });
+                    };
+                    if width >= 620.0 {
+                        let mut ctx_state = (&mut *self, &mut action);
+                        style::split_two_columns_with(
+                            ui,
+                            0.36,
+                            12.0,
+                            &mut ctx_state,
+                            |ui, (this, action)| list_panel(ui, this, action),
+                            |ui, (this, action)| detail_panel(ui, this, selected, action),
+                        );
+                    } else {
+                        list_panel(ui, self, &mut action);
+                        ui.add_space(8.0);
+                        detail_panel(ui, self, selected, &mut action);
                     }
                     if let Some(error) = &self.error {
-                        ui.colored_label(style::ERROR, error);
+                        ui.add_space(6.0);
+                        style::banner(ui, error, style::error(), style::error_soft());
                     }
                     if let Some(task) = &self.task {
                         ui.horizontal_wrapped(|ui| {
@@ -835,7 +921,7 @@ fn show_result(ui: &mut egui::Ui, finished: &Finished, height: f32) {
     let label = format!("{} {}", finished.operation.label(), finished.name);
     match &finished.result {
         Err(error) => {
-            ui.colored_label(style::ERROR, format!("{label}：{error}"));
+            ui.colored_label(style::error(), format!("{label}：{error}"));
         }
         Ok(output) => {
             match output.code {
@@ -846,10 +932,10 @@ fn show_result(ui: &mut egui::Ui, finished: &Finished, height: f32) {
                     ui.label(format!("{label}已停止"));
                 }
                 Some(code) => {
-                    ui.colored_label(style::ERROR, format!("{label}退出，退出码 {code}"));
+                    ui.colored_label(style::error(), format!("{label}退出，退出码 {code}"));
                 }
                 None => {
-                    ui.colored_label(style::ERROR, format!("{label}结束，未返回退出码"));
+                    ui.colored_label(style::error(), format!("{label}结束，未返回退出码"));
                 }
             }
             egui::ScrollArea::vertical()

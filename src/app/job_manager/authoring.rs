@@ -167,7 +167,7 @@ impl Form {
 
     pub(super) fn buttons(&self, ui: &mut egui::Ui) -> Option<Action> {
         if let Some(error) = &self.error {
-            ui.colored_label(style::ERROR, error);
+            ui.colored_label(style::error(), error);
         }
         ui.horizontal(|ui| {
             let (label, action) = match self.finish {

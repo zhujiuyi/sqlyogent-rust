@@ -1,4 +1,4 @@
-use eframe::egui::{self, Align, ComboBox, Layout, ScrollArea, TextEdit, TextStyle};
+use eframe::egui::{self, ComboBox, ScrollArea, TextEdit, TextStyle};
 
 use super::style;
 
@@ -19,32 +19,92 @@ impl Dialog {
     pub(super) fn show(&mut self, ctx: &egui::Context) -> Option<Choice> {
         let screen = ctx.content_rect();
         let modal = crate::app::style::modal(ctx, egui::Id::new("sql-templates")).show(ctx, |ui| {
-            ui.set_width((screen.width() - 48.0).clamp(250.0, 560.0));
+            let width = (screen.width() - 48.0).clamp(360.0, 680.0);
+            ui.set_width(width);
             ui.heading("插入 SQL 模板");
-            ComboBox::from_id_salt("template")
-                .selected_text(TEMPLATES[self.selected].label)
-                .width(ui.available_width())
-                .height((screen.height() * 0.48).clamp(120.0, 340.0))
-                .show_ui(ui, |ui| {
-                    for (index, template) in TEMPLATES.iter().enumerate() {
-                        ui.selectable_value(&mut self.selected, index, template.label);
-                    }
-                });
-
+            ui.label(
+                egui::RichText::new("选择常用 SQL 模板预览并直接插入当前光标位置")
+                    .small()
+                    .color(style::muted()),
+            );
+            ui.add_space(8.0);
+            let body_height = (screen.height() * 0.44).clamp(180.0, 320.0);
             let sql = TEMPLATES[self.selected].sql;
-            let mut preview = sql;
-            ui.label("SQL 预览");
-            ScrollArea::vertical()
-                .max_height((screen.height() * 0.35).clamp(95.0, 240.0))
-                .show(ui, |ui| {
-                    ui.add(
-                        TextEdit::multiline(&mut preview)
-                            .font(TextStyle::Monospace)
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(8),
-                    );
+            let list_panel = |ui: &mut egui::Ui, selected: &mut usize| {
+                style::section_card(ui, "模板目录", |ui| {
+                    ScrollArea::vertical()
+                        .id_salt("sql-template-list")
+                        .auto_shrink([false, false])
+                        .max_height(body_height)
+                        .show(ui, |ui| {
+                            for (index, template) in TEMPLATES.iter().enumerate() {
+                                let is_selected = *selected == index;
+                                let text = if is_selected {
+                                    egui::RichText::new(template.label)
+                                        .strong()
+                                        .color(style::accent())
+                                } else {
+                                    egui::RichText::new(template.label).color(style::ink())
+                                };
+                                if ui
+                                    .add_sized(
+                                        [ui.available_width(), 26.0],
+                                        egui::Button::selectable(is_selected, text).truncate(),
+                                    )
+                                    .clicked()
+                                {
+                                    *selected = index;
+                                }
+                            }
+                        });
                 });
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            };
+            let preview_panel = |ui: &mut egui::Ui| {
+                style::section_card(ui, "SQL 预览", |ui| {
+                    let mut preview = sql;
+                    ScrollArea::vertical()
+                        .id_salt("sql-template-preview")
+                        .auto_shrink([false, false])
+                        .max_height(body_height)
+                        .show(ui, |ui| {
+                            let mut layouter =
+                                |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+                                    let job = style::highlight(text.as_str(), wrap_width);
+                                    ui.fonts_mut(|fonts| fonts.layout_job(job))
+                                };
+                            ui.add(
+                                TextEdit::multiline(&mut preview)
+                                    .layouter(&mut layouter)
+                                    .font(TextStyle::Monospace)
+                                    .desired_width(f32::INFINITY)
+                                    .desired_rows(10)
+                                    .frame(false),
+                            );
+                        });
+                });
+            };
+            if width >= 520.0 {
+                style::split_two_columns(
+                    ui,
+                    0.38,
+                    12.0,
+                    |ui| list_panel(ui, &mut self.selected),
+                    preview_panel,
+                );
+            } else {
+                ComboBox::from_id_salt("template")
+                    .selected_text(TEMPLATES[self.selected].label)
+                    .width(ui.available_width())
+                    .height((screen.height() * 0.42).clamp(120.0, 300.0))
+                    .show_ui(ui, |ui| {
+                        for (index, template) in TEMPLATES.iter().enumerate() {
+                            ui.selectable_value(&mut self.selected, index, template.label);
+                        }
+                    });
+                ui.add_space(8.0);
+                preview_panel(ui);
+            }
+            style::dialog_footer(ui, |ui| {
                 if ui.add(style::primary("插入")).clicked() {
                     Some(Choice::Insert(sql))
                 } else if ui.button("取消").clicked() {
@@ -53,7 +113,6 @@ impl Dialog {
                     None
                 }
             })
-            .inner
         });
         if modal.should_close() {
             return Some(Choice::Cancel);

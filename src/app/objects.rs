@@ -564,63 +564,86 @@ pub(super) fn dialog(ctx: &egui::Context, plan: &mut Option<Plan>, workspaces: &
         Operation::CreateDatabase | Operation::AlterDatabase(_)
     );
     let modal = crate::app::style::modal(ctx, egui::Id::new("object-action")).show(ctx, |ui| {
-        ui.set_min_width(480.0);
-        ui.heading(heading(&form.op));
-        if let Some(object) = target(&form.op) {
-            ui.monospace(qualified(&object.schema, &object.name));
-        }
-        form_fields(ui, form, ws);
-        if ws.busy() && needs_metadata(&form.op) {
-            ui.spinner();
-        }
+        ui.set_width((ctx.content_rect().width() - 64.0).clamp(400.0, 560.0));
+        ui.horizontal(|ui| {
+            ui.heading(heading(&form.op));
+            if let Some(object) = target(&form.op) {
+                ui.add_space(6.0);
+                style::badge(
+                    ui,
+                    qualified(&object.schema, &object.name),
+                    style::accent(),
+                    style::accent_soft(),
+                );
+            }
+        });
+        ui.add_space(8.0);
+        style::card(egui::Margin::same(12)).show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            form_fields(ui, form, ws);
+            if ws.busy() && needs_metadata(&form.op) {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(RichText::new("正在读取对象信息…").color(style::muted()));
+                });
+            }
+            if defaults && ws.database_defaults.is_none() && !ws.busy() && ws.server.is_some() {
+                reload_defaults = ui.button("重新读取字符集和排序规则").clicked();
+            }
+        });
+        ui.add_space(8.0);
         let candidate = statement_for(form, ws);
         match &candidate {
             Ok(query) => {
-                let mut preview = query.as_str();
-                egui::ScrollArea::both().max_height(220.0).show(ui, |ui| {
-                    ui.add(
-                        TextEdit::multiline(&mut preview)
-                            .code_editor()
-                            .desired_width(f32::INFINITY),
-                    );
+                style::section_card(ui, "SQL 预览", |ui| {
+                    let mut preview = query.as_str();
+                    egui::ScrollArea::both()
+                        .auto_shrink([false, false])
+                        .max_height(210.0)
+                        .show(ui, |ui| {
+                            ui.add(
+                                TextEdit::multiline(&mut preview)
+                                    .code_editor()
+                                    .desired_width(f32::INFINITY)
+                                    .frame(false),
+                            );
+                        });
                 });
             }
             Err(error) if !error.is_empty() => {
-                ui.label(RichText::new(error).color(style::MUTED));
+                style::banner(ui, error, style::muted(), style::panel());
             }
             _ => {}
         }
-        if defaults && ws.database_defaults.is_none() && !ws.busy() && ws.server.is_some() {
-            reload_defaults = ui.button("重新读取字符集和排序规则").clicked();
-        }
-        ui.horizontal(|ui| {
+        style::dialog_footer(ui, |ui| {
             let label = if matches!(form.op, Operation::PasteStatement { .. }) {
                 "插入当前查询"
             } else {
                 "在编辑器中打开 SQL"
             };
-            if ui
-                .add_enabled(candidate.is_ok(), style::primary(label))
-                .clicked()
-            {
-                sql = candidate.as_ref().ok().cloned();
-            }
+            let ok = candidate.is_ok();
             if defaults {
-                let label = if matches!(form.op, Operation::CreateDatabase) {
+                let apply_label = if matches!(form.op, Operation::CreateDatabase) {
                     "创建数据库"
                 } else {
                     "应用修改"
                 };
+                let can_apply = ok && ws.server.is_some() && !ws.busy();
                 if ui
-                    .add_enabled(
-                        candidate.is_ok() && ws.server.is_some() && !ws.busy(),
-                        egui::Button::new(label),
-                    )
+                    .add_enabled(can_apply, style::primary_enabled(can_apply, apply_label))
                     .clicked()
                 {
-                    sql = candidate.ok();
+                    sql = candidate.as_ref().ok().cloned();
                     apply_now = true;
                 }
+                if ui.add_enabled(ok, egui::Button::new(label)).clicked() {
+                    sql = candidate.ok();
+                }
+            } else if ui
+                .add_enabled(ok, style::primary_enabled(ok, label))
+                .clicked()
+            {
+                sql = candidate.ok();
             }
             close = ui.button("关闭").clicked();
         });

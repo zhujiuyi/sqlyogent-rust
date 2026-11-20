@@ -133,80 +133,120 @@ pub(super) fn dialog(
     let mut open = None;
     crate::app::style::modal(ctx, egui::Id::new("alter-table-fields")).show(ctx, |ui| {
         ui.set_width((viewport.width() - 58.0).clamp(1.0, 1000.0));
-        ui.heading("修改表结构");
-        ui.monospace(qualified(&editor.object));
+        ui.horizontal(|ui| {
+            ui.heading("修改表结构");
+            ui.add_space(6.0);
+            style::badge(
+                ui,
+                qualified(&editor.object),
+                style::accent(),
+                style::accent_soft(),
+            );
+        });
+        ui.add_space(8.0);
+        let mut ready_sql = None;
         match &mut editor.loading {
             Load::Settings | Load::Definition => {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spinner();
-                    ui.label(&ws.status);
+                style::subtle_card(egui::Margin::same(14)).show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spinner();
+                        ui.label(&ws.status);
+                    });
                 });
             }
             Load::Failed(error) => {
-                ui.colored_label(style::ERROR, error.as_str());
+                style::banner(ui, error.as_str(), style::error(), style::error_soft());
+                ui.add_space(6.0);
                 retry = ui
                     .add_enabled(!ws.busy() && ws.server.is_some(), Button::new("重新读取"))
                     .clicked();
             }
             Load::Ready(draft) => {
-                ui.horizontal_wrapped(|ui| {
-                    if ui.button("添加字段").clicked() {
-                        draft.add_field();
-                    }
-                    if ui.button("恢复原定义").clicked() {
-                        draft.fields.clone_from(&draft.original);
-                        draft.options = Options::default();
-                    }
-                    ui.checkbox(&mut draft.advanced, "高级表属性");
-                    ui.checkbox(&mut draft.preview, "预览 SQL");
+                style::subtle_card(egui::Margin::symmetric(10, 6)).show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.button("添加字段").clicked() {
+                            draft.add_field();
+                        }
+                        if ui.button("恢复原定义").clicked() {
+                            draft.fields.clone_from(&draft.original);
+                            draft.options = Options::default();
+                        }
+                        ui.separator();
+                        ui.checkbox(&mut draft.advanced, "高级表属性");
+                        ui.checkbox(&mut draft.preview, "预览 SQL");
+                    });
                 });
-                field_grid(
-                    ui,
-                    &mut draft.fields,
-                    (viewport.height() * 0.31).clamp(100.0, 265.0),
-                );
+                ui.add_space(8.0);
+                style::card(egui::Margin::same(8)).show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    field_grid(
+                        ui,
+                        &mut draft.fields,
+                        (viewport.height() * 0.31).clamp(100.0, 265.0),
+                    );
+                });
                 if draft.advanced {
-                    egui::ScrollArea::both()
-                        .id_salt("alter-table-properties")
-                        .max_height((viewport.height() * 0.26).clamp(106.0, 205.0))
-                        .show(ui, |ui| {
-                            draft.options.show(
-                                ui,
-                                &ws.engines,
-                                Some(&draft.original_options),
-                                ws.raid_default_engine.as_deref(),
-                            );
-                        });
+                    ui.add_space(8.0);
+                    style::section_card(ui, "高级表属性", |ui| {
+                        egui::ScrollArea::both()
+                            .id_salt("alter-table-properties")
+                            .auto_shrink([false, false])
+                            .max_height((viewport.height() * 0.24).clamp(106.0, 200.0))
+                            .show(ui, |ui| {
+                                draft.options.show(
+                                    ui,
+                                    &ws.engines,
+                                    Some(&draft.original_options),
+                                    ws.raid_default_engine.as_deref(),
+                                );
+                            });
+                    });
                 }
                 match alter_sql(draft, &editor.object, ws.raid_default_engine.as_deref()) {
                     Ok(Some(sql)) => {
                         if draft.preview {
-                            let mut query = sql.as_str();
-                            egui::ScrollArea::both()
-                                .id_salt("alter-sql-preview")
-                                .max_height((viewport.height() * 0.21).clamp(84.0, 175.0))
-                                .show(ui, |ui| {
-                                    ui.add(
-                                        TextEdit::multiline(&mut query)
-                                            .code_editor()
-                                            .desired_width(f32::INFINITY),
-                                    );
-                                });
+                            ui.add_space(8.0);
+                            style::section_card(ui, "SQL 预览", |ui| {
+                                let mut query = sql.as_str();
+                                egui::ScrollArea::both()
+                                    .id_salt("alter-sql-preview")
+                                    .auto_shrink([false, false])
+                                    .max_height((viewport.height() * 0.20).clamp(84.0, 165.0))
+                                    .show(ui, |ui| {
+                                        ui.add(
+                                            TextEdit::multiline(&mut query)
+                                                .code_editor()
+                                                .desired_width(f32::INFINITY)
+                                                .frame(false),
+                                        );
+                                    });
+                            });
                         }
-                        if ui.add(style::primary("在编辑器中打开 SQL")).clicked() {
-                            open = Some(sql);
-                        }
+                        ready_sql = Some(sql);
                     }
                     Ok(None) => {
-                        ui.colored_label(style::MUTED, "尚无更改。");
+                        ui.add_space(6.0);
+                        ui.colored_label(style::muted(), "尚无更改。");
                     }
                     Err(error) => {
-                        ui.colored_label(style::ERROR, error);
+                        ui.add_space(6.0);
+                        style::banner(ui, &error, style::error(), style::error_soft());
                     }
                 }
             }
         }
-        close = ui.button("取消").clicked();
+        style::dialog_footer(ui, |ui| {
+            let has_sql = ready_sql.is_some();
+            if ui
+                .add_enabled(has_sql, style::primary_enabled(has_sql, "在编辑器中打开 SQL"))
+                .clicked()
+            {
+                open = ready_sql;
+            }
+            close = ui.button("取消").clicked();
+        });
     });
     if let Some(sql) = open {
         ws.new_tab(sql, None);

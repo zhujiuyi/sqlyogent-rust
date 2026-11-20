@@ -385,7 +385,7 @@ impl Editor {
                 mapping.filter_scope = Some(scope);
             }
             if job.mode == Mode::ReconcileBoth && scope == FilterScope::Source {
-                ui.colored_label(style::ERROR, "双向同步的行条件需要应用于两端。");
+                ui.colored_label(style::error(), "双向同步的行条件需要应用于两端。");
             }
         } else {
             mapping.filter_scope = None;
@@ -456,7 +456,7 @@ impl Catalog {
             });
         }
         if let Some(error) = &self.error {
-            ui.colored_label(style::ERROR, format!("{endpoint}读取失败。{error}"));
+            ui.colored_label(style::error(), format!("{endpoint}读取失败。{error}"));
         }
     }
 }
@@ -596,7 +596,7 @@ fn run_fields(ui: &mut egui::Ui, job: &mut DataSyncJob, form: &Form) {
         if job.continue_on_row_error {
             ui.label(
                 egui::RichText::new("跳过出错行的设置在程序直接执行同步时生效。")
-                    .color(style::MUTED),
+                    .color(style::muted()),
             );
         }
     } else {

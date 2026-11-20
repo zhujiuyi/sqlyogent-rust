@@ -24,10 +24,10 @@ pub(super) fn panel(ui: &mut egui::Ui, workspace: &mut Workspace) {
             .id_salt(("profile", workspace.key, tab.id))
             .show(ui, |ui| {
                 if let Some(error) = &profile.error {
-                    ui.colored_label(style::ERROR, error);
+                    ui.colored_label(style::error(), error);
                 }
                 for notice in &profile.notices {
-                    ui.colored_label(style::MUTED, notice);
+                    ui.colored_label(style::muted(), notice);
                 }
                 if statement.is_none() {
                     egui::CollapsingHeader::new("已执行的 SQL").show(ui, |ui| {
@@ -35,39 +35,57 @@ pub(super) fn panel(ui: &mut egui::Ui, workspace: &mut Workspace) {
                     });
                 }
                 for section in &profile.sections {
-                    egui::CollapsingHeader::new(section.title)
+                    ui.add_space(6.0);
+                    style::card(egui::Margin::same(12)).show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        egui::CollapsingHeader::new(
+                            RichText::new(section.title).strong().color(style::ink()),
+                        )
                         .default_open(true)
                         .show(ui, |ui| {
-                            ui.label(RichText::new(section.help).color(style::MUTED));
+                            ui.label(RichText::new(section.help).small().color(style::muted()));
+                            ui.add_space(4.0);
                             match &section.data {
                                 Ok(table) => {
                                     if !table.summary.is_empty() {
-                                        ui.label(&table.summary);
+                                        ui.label(
+                                            RichText::new(&table.summary)
+                                                .strong()
+                                                .color(style::accent()),
+                                        );
                                     }
                                     if table.rows.is_empty() {
                                         return;
                                     }
-                                    egui::Grid::new(section.title).striped(true).show(ui, |ui| {
-                                        for column in &table.columns {
-                                            ui.strong(column);
-                                        }
-                                        ui.end_row();
-                                        for row in &table.rows {
-                                            for value in row {
-                                                ui.monospace(value);
+                                    egui::Grid::new(section.title)
+                                        .striped(true)
+                                        .spacing([14.0, 5.0])
+                                        .show(ui, |ui| {
+                                            for column in &table.columns {
+                                                ui.label(
+                                                    RichText::new(column)
+                                                        .strong()
+                                                        .color(style::ink()),
+                                                );
                                             }
                                             ui.end_row();
-                                        }
-                                    });
+                                            for row in &table.rows {
+                                                for value in row {
+                                                    ui.monospace(value);
+                                                }
+                                                ui.end_row();
+                                            }
+                                        });
                                 }
                                 Err(error) => {
                                     ui.label(
                                         RichText::new(format!("无法采集。{error}"))
-                                            .color(style::MUTED),
+                                            .color(style::muted()),
                                     );
                                 }
                             }
                         });
+                    });
                 }
             });
     });

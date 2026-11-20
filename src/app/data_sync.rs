@@ -247,21 +247,55 @@ pub(super) fn dialog(
     let mut stage = false;
     let mut close = false;
     crate::app::style::modal(ctx, egui::Id::new("table-data-sync")).show(ctx, |ui| {
-        ui.set_width((ctx.content_rect().width() - 60.0).clamp(540.0, 870.0));
-        ui.heading(if sync.tables.is_some() { "多表数据同步" } else { "比较与同步表数据" });
-        if sync.tables.is_none() {
-            ui.add_enabled_ui(!active, |ui| {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut sync.use_sync_wizard, true, "整表同步向导");
-                    ui.selectable_value(&mut sync.use_sync_wizard, false, "小表逐行对照");
-                });
+        ui.set_width((ctx.content_rect().width() - 60.0).clamp(540.0, 880.0));
+        ui.horizontal(|ui| {
+            ui.heading(if sync.tables.is_some() {
+                "多表数据同步"
+            } else {
+                "比较与同步表数据"
             });
-        }
+            if sync.tables.is_none() {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_enabled_ui(!active, |ui| {
+                        style::subtle_card(egui::Margin::symmetric(4, 2)).show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.selectable_value(
+                                    &mut sync.use_sync_wizard,
+                                    true,
+                                    "整表同步向导",
+                                );
+                                ui.selectable_value(
+                                    &mut sync.use_sync_wizard,
+                                    false,
+                                    "小表逐行对照",
+                                );
+                            });
+                        });
+                    });
+                });
+            }
+        });
+        ui.add_space(8.0);
         let previous = (sync.source.clone(), sync.target.clone());
         ui.add_enabled_ui(!active, |ui| {
-            endpoint_fields(ui, "源端", &mut sync.source, sync.tables.is_none(), workspaces);
-            endpoint_fields(ui, "目标端", &mut sync.target, sync.tables.is_none(), workspaces);
+            let select_table = sync.tables.is_none();
+            style::split_two_columns(
+                ui,
+                0.5,
+                12.0,
+                |ui| {
+                    style::section_card(ui, "源端", |ui| {
+                        endpoint_fields(ui, "源端", &mut sync.source, select_table, workspaces);
+                    });
+                },
+                |ui| {
+                    style::section_card(ui, "目标端", |ui| {
+                        endpoint_fields(ui, "目标端", &mut sync.target, select_table, workspaces);
+                    });
+                },
+            );
         });
+        ui.add_space(8.0);
         if previous != (sync.source.clone(), sync.target.clone()) {
             sync.compared = None;
             sync.error = None;
@@ -320,14 +354,14 @@ pub(super) fn dialog(
                 sync.error = None;
             }
             if let Some(reason) = compared.staging_blocker() {
-                ui.label(RichText::new(reason).color(style::MUTED));
+                ui.label(RichText::new(reason).color(style::muted()));
             } else {
-                ui.label(RichText::new("SQL 仅包含新增与选定的更新。请在对应连接中分别审阅和执行，两端提交相互独立。").color(style::MUTED));
+                ui.label(RichText::new("SQL 仅包含新增与选定的更新。请在对应连接中分别审阅和执行，两端提交相互独立。").color(style::muted()));
                 stage = ui.add_enabled(!compared.differences.is_empty(), style::primary("在编辑器中打开同步 SQL")).clicked();
             }
         }
         if let Some(error) = &sync.error {
-            ui.colored_label(style::ERROR, error);
+            ui.colored_label(style::error(), error);
         }
     });
     if close {
@@ -483,7 +517,7 @@ fn select_tables(
     let shared: BTreeSet<_> = left.intersection(&right).cloned().collect();
     selected.retain(|name| shared.contains(name));
     if shared.is_empty() {
-        ui.label(RichText::new("两端没有可同步的同名表。").color(style::MUTED));
+        ui.label(RichText::new("两端没有可同步的同名表。").color(style::muted()));
         return;
     }
     ui.separator();

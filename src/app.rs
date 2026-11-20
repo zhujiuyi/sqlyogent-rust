@@ -45,7 +45,6 @@ use std::{
 };
 
 use eframe::egui::{self, Align, Button, Key, Layout, Modifiers, RichText, TextEdit};
-use harbor_sql::APP_NAME;
 
 use crate::database::{
     Command, ConnectionProbe, DbObject, HTTP_CONTENT_TYPES, ObjectKind, Response, Worker,
@@ -127,6 +126,38 @@ impl ConnectionForm {
         self.test_result = None;
         self.error.clear();
         self.notice.clear();
+    }
+
+    fn load_profile(&mut self, profile: Profile, saved: Option<usize>) {
+        self.password = profile.password.clone();
+        self.ssh_password = profile.ssh_password.clone();
+        self.ssh_key_passphrase = profile.ssh_key_passphrase.clone();
+        self.web_password = profile
+            .http
+            .as_ref()
+            .map(|http| http.web_password.clone())
+            .unwrap_or_default();
+        self.proxy_password = profile
+            .http
+            .as_ref()
+            .map(|http| http.proxy_password.clone())
+            .unwrap_or_default();
+        self.profile = profile;
+        self.saved = saved;
+        self.init_sql.clear();
+        self.test_result = None;
+        self.error.clear();
+        self.notice.clear();
+    }
+
+    fn sync_passwords_to_profile(&mut self) {
+        self.profile.password = self.password.clone();
+        self.profile.ssh_password = self.ssh_password.clone();
+        self.profile.ssh_key_passphrase = self.ssh_key_passphrase.clone();
+        if let Some(http) = &mut self.profile.http {
+            http.web_password = self.web_password.clone();
+            http.proxy_password = self.proxy_password.clone();
+        }
     }
 
     fn initialization(&self) -> Result<String, String> {
@@ -1226,6 +1257,22 @@ impl Workbench {
         &mut self.workspaces[self.active]
     }
 
+    /// 桌面端启动时直接打开连接弹窗，省去手动点击“新建连接”。
+    pub fn open_startup_connection(&mut self) {
+        if self.connection.is_none() {
+            self.new_connection(None);
+        }
+    }
+
+    /// 判断是否为启动时创建的未连接默认占位工作区（尚无连接配置、未连接且非忙碌）。
+    fn is_placeholder_workspace(&self, index: usize) -> bool {
+        let workspace = &self.workspaces[index];
+        workspace.profile.is_none()
+            && workspace.server.is_none()
+            && !workspace.busy()
+            && workspace.label == "临时查询"
+    }
+
     fn active_layout(&self) -> Option<Document> {
         self.design_tabs.active(self.workspaces[self.active].key)
     }
@@ -1251,16 +1298,41 @@ impl Workbench {
         {
             return;
         }
-        let profile = edit
-            .and_then(|index| self.workspaces[index].profile.clone())
-            .unwrap_or_default();
-        let saved = self
-            .profiles
-            .iter()
-            .position(|item| item.label == profile.label);
-        self.connection = Some(ConnectionForm {
-            profile,
-            saved,
+        let (profile, saved) = if let Some(index) = edit {
+            let mut profile = self.workspaces[index].profile.clone().unwrap_or_default();
+            let saved = self
+                .profiles
+                .iter()
+                .position(|item| item.label == profile.label);
+            if let Some(saved_index) = saved {
+                let stored = &self.profiles[saved_index];
+                if profile.password.is_empty() {
+                    profile.password = stored.password.clone();
+                }
+                if profile.ssh_password.is_empty() {
+                    profile.ssh_password = stored.ssh_password.clone();
+                }
+                if profile.ssh_key_passphrase.is_empty() {
+                    profile.ssh_key_passphrase = stored.ssh_key_passphrase.clone();
+                }
+                if let (Some(http), Some(stored_http)) = (&mut profile.http, &stored.http) {
+                    if http.web_password.is_empty() {
+                        http.web_password = stored_http.web_password.clone();
+                    }
+                    if http.proxy_password.is_empty() {
+                        http.proxy_password = stored_http.proxy_password.clone();
+                    }
+                }
+            }
+            (profile, saved)
+        } else if let Some(first) = self.profiles.first() {
+            (first.clone(), Some(0))
+        } else {
+            (Profile::default(), None)
+        };
+        let mut form = ConnectionForm {
+            profile: Profile::default(),
+            saved: None,
             password: String::new(),
             web_password: String::new(),
             proxy_password: String::new(),
@@ -1272,7 +1344,9 @@ impl Workbench {
             edit_existing: edit,
             error: String::new(),
             notice: String::new(),
-        });
+        };
+        form.load_profile(profile, saved);
+        self.connection = Some(form);
     }
 
     fn receive_cloned_connections(&mut self) {
@@ -1350,267 +1424,328 @@ impl Workbench {
         let exterior_height =
             if has_feedback { 218.0 } else { 128.0 } + if testing { 32.0 } else { 0.0 };
         style::modal(ctx, egui::Id::new("connection-dialog")).show(ctx, |ui| {
-            ui.set_width((ctx.content_rect().width() - 48.0).clamp(1.0, 560.0));
-            ui.heading("数据库连接");
-            ui.add_space(4.0);
+            ui.set_width((ctx.content_rect().width() - 48.0).clamp(1.0, 580.0));
+            ui.horizontal(|ui| {
+                ui.image((self.brand_icon.id(), egui::vec2(26.0, 26.0)));
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 1.0;
+                    ui.heading("数据库连接");
+                    ui.label(
+                        RichText::new("配置 MySQL / MariaDB 服务器、SSH/HTTP 隧道与安全证书")
+                            .small()
+                            .color(style::muted()),
+                    );
+                });
+            });
+            ui.add_space(10.0);
             egui::ScrollArea::vertical()
                 .id_salt("connection-form-body")
                 .max_height((ctx.content_rect().height() - exterior_height).max(64.0))
                 .show(ui, |ui| {
                     ui.add_enabled_ui(!testing, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            if !self.profiles.is_empty() {
-                                egui::ComboBox::from_id_salt("profiles")
-                                    .selected_text(
-                                        form.saved
-                                            .map(|i| self.profiles[i].label.as_str())
-                                            .unwrap_or("已保存的连接"),
-                                    )
-                                    .show_ui(ui, |ui| {
-                                        if ui
-                                            .selectable_label(form.saved.is_none(), "新建连接配置")
-                                            .clicked()
-                                        {
-                                            form.saved = None;
-                                            form.profile = Profile::default();
-                                            form.reset_private();
-                                        }
-                                        for (index, profile) in self.profiles.iter().enumerate() {
+                        style::subtle_card(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.horizontal_wrapped(|ui| {
+                                if !self.profiles.is_empty() {
+                                    egui::ComboBox::from_id_salt("profiles")
+                                        .selected_text(
+                                            form.saved
+                                                .map(|i| self.profiles[i].label.as_str())
+                                                .unwrap_or("已保存的连接"),
+                                        )
+                                        .show_ui(ui, |ui| {
                                             if ui
                                                 .selectable_label(
-                                                    form.saved == Some(index),
-                                                    &profile.label,
+                                                    form.saved.is_none(),
+                                                    "新建连接配置",
                                                 )
                                                 .clicked()
                                             {
-                                                form.profile = profile.clone();
-                                                form.saved = Some(index);
+                                                form.saved = None;
+                                                form.profile = Profile::default();
                                                 form.reset_private();
                                             }
-                                        }
-                                    });
-                            }
-                            import = ui
-                                .add_enabled(
-                                    self.profiles_readable,
-                                    Button::new("导入 SQLyog 连接配置…"),
-                                )
-                                .clicked();
-                        });
-                        ui.add_space(7.0);
-                        ui.label(RichText::new("服务器").strong());
-                        egui::Grid::new("connection-fields")
-                            .num_columns(2)
-                            .spacing([16.0, 7.0])
-                            .show(ui, |ui| {
-                                field(ui, "连接名称", &mut form.profile.label, "开发环境");
-                                field(ui, "主机地址", &mut form.profile.host, "127.0.0.1");
-                                ui.label("端口");
-                                ui.add(
-                                    egui::DragValue::new(&mut form.profile.port).range(1..=65535),
-                                );
-                                ui.end_row();
-                                field(ui, "用户名", &mut form.profile.user, "root");
-                                ui.label("密码");
-                                ui.add(
-                                    TextEdit::singleline(&mut form.password)
-                                        .password(true)
-                                        .desired_width(310.0),
-                                );
-                                ui.end_row();
-                                field(ui, "默认数据库", &mut form.profile.schema, "选填");
+                                            for (index, profile) in self.profiles.iter().enumerate()
+                                            {
+                                                if ui
+                                                    .selectable_label(
+                                                        form.saved == Some(index),
+                                                        &profile.label,
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    form.load_profile(profile.clone(), Some(index));
+                                                }
+                                            }
+                                        });
+                                }
+                                import = ui
+                                    .add_enabled(
+                                        self.profiles_readable,
+                                        Button::new("导入 SQLyog 连接配置…"),
+                                    )
+                                    .clicked();
                             });
-                        ui.separator();
-                        ui.label(RichText::new("传输与安全").strong());
-                        let mut http = form.profile.http.is_some();
-                        if ui
-                            .checkbox(&mut http, "通过 HTTP / HTTPS 隧道连接")
-                            .changed()
-                        {
-                            form.profile.http = http.then(state::HttpProfile::default);
-                            form.web_password.clear();
-                            form.proxy_password.clear();
-                        }
-                        if http {
-                            http_connection_fields(ui, form);
-                        } else {
-                            ui.checkbox(&mut form.profile.tls, "启用 TLS 并验证服务器证书");
-                            if form.profile.tls {
-                                ui.horizontal(|ui| {
+                        });
+                        ui.add_space(10.0);
+                        style::card(egui::Margin::same(14)).show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.label(RichText::new("服务器").strong().color(style::ink()));
+                            ui.add_space(6.0);
+                            egui::Grid::new("connection-fields")
+                                .num_columns(2)
+                                .spacing([16.0, 9.0])
+                                .show(ui, |ui| {
+                                    field(ui, "连接名称", &mut form.profile.label, "开发环境");
+                                    field(ui, "主机地址", &mut form.profile.host, "127.0.0.1");
+                                    ui.label(RichText::new("端口").color(style::muted()));
                                     ui.add(
-                                        TextEdit::singleline(&mut form.profile.ca)
-                                            .desired_width(350.0)
-                                            .hint_text("CA 证书文件（选填）"),
-                                    );
-                                    if ui.button("浏览…").clicked()
-                                        && let Some(path) = rfd::FileDialog::new()
-                                            .set_title("选择 CA 证书文件")
-                                            .pick_file()
-                                    {
-                                        form.profile.ca = path.to_string_lossy().into_owned();
-                                    }
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.add(
-                                        TextEdit::singleline(&mut form.profile.client_identity)
-                                            .desired_width(350.0)
-                                            .hint_text("客户端证书链（选填）"),
-                                    );
-                                    if ui.button("浏览…").clicked()
-                                        && let Some(path) = rfd::FileDialog::new()
-                                            .set_title("选择客户端证书链")
-                                            .add_filter("证书文件", &["pem", "crt", "cer", "der"])
-                                            .pick_file()
-                                    {
-                                        form.profile.client_identity =
-                                            path.to_string_lossy().into_owned();
-                                    }
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.add(
-                                        TextEdit::singleline(&mut form.profile.client_private_key)
-                                            .desired_width(350.0)
-                                            .hint_text("客户端私钥文件（选填）"),
-                                    );
-                                    if ui.button("浏览…").clicked()
-                                        && let Some(path) = rfd::FileDialog::new()
-                                            .set_title("选择客户端私钥")
-                                            .add_filter("私钥文件", &["pem", "key", "der"])
-                                            .pick_file()
-                                    {
-                                        form.profile.client_private_key =
-                                            path.to_string_lossy().into_owned();
-                                    }
-                                });
-                            }
-                            ui.checkbox(&mut form.profile.ssh, "通过 SSH 隧道连接");
-                            if form.profile.ssh {
-                                ui.label("SSH 隧道使用已登记的主机密钥验证服务器。");
-                                ui.horizontal(|ui| {
-                                    ui.selectable_value(
-                                        &mut form.profile.ssh_password_auth,
-                                        false,
-                                        "系统密钥或代理",
-                                    );
-                                    ui.selectable_value(
-                                        &mut form.profile.ssh_password_auth,
-                                        true,
-                                        "密码",
-                                    );
-                                });
-                                egui::Grid::new("ssh-fields").num_columns(2).show(ui, |ui| {
-                                    field(
-                                        ui,
-                                        "SSH 主机",
-                                        &mut form.profile.ssh_host,
-                                        "bastion.example.net",
-                                    );
-                                    ui.label("SSH 端口");
-                                    ui.add(
-                                        egui::DragValue::new(&mut form.profile.ssh_port)
+                                        egui::DragValue::new(&mut form.profile.port)
                                             .range(1..=65535),
                                     );
                                     ui.end_row();
-                                    field(
-                                        ui,
-                                        "SSH 用户名",
-                                        &mut form.profile.ssh_user,
-                                        if form.profile.ssh_password_auth {
-                                            "必填"
-                                        } else {
-                                            "选填"
-                                        },
+                                    field(ui, "用户名", &mut form.profile.user, "root");
+                                    ui.label(RichText::new("密码").color(style::muted()));
+                                    ui.add(
+                                        TextEdit::singleline(&mut form.password)
+                                            .password(true)
+                                            .desired_width(310.0),
                                     );
-                                    if form.profile.ssh_password_auth {
-                                        ui.label("SSH 密码");
-                                        ui.add(
-                                            TextEdit::singleline(&mut form.ssh_password)
-                                                .password(true)
-                                                .desired_width(310.0),
-                                        );
-                                        ui.end_row();
-                                    } else {
-                                        ui.label("私钥文件");
-                                        ui.horizontal(|ui| {
-                                            if ui
-                                                .add(
-                                                    TextEdit::singleline(&mut form.profile.ssh_key)
-                                                        .desired_width(235.0)
-                                                        .hint_text("OpenSSH 或 PuTTY .ppk"),
-                                                )
-                                                .changed()
-                                            {
-                                                form.ssh_key_passphrase.clear();
-                                            }
-                                            if ui.button("浏览…").clicked()
-                                                && let Some(path) = rfd::FileDialog::new()
-                                                    .set_title("选择 SSH 私钥")
-                                                    .pick_file()
-                                            {
-                                                form.profile.ssh_key =
-                                                    path.to_string_lossy().into_owned();
-                                                form.ssh_key_passphrase.clear();
-                                            }
-                                        });
-                                        ui.end_row();
-                                        if !form.profile.ssh_key.trim().is_empty() {
-                                            ui.label("私钥口令");
-                                            ui.add(
-                                                TextEdit::singleline(&mut form.ssh_key_passphrase)
-                                                    .password(true)
-                                                    .desired_width(310.0)
-                                                    .hint_text("私钥已加密时填写"),
-                                            );
-                                            ui.end_row();
-                                        }
-                                    }
-                                    ui.label("主机密钥文件");
+                                    ui.end_row();
+                                    field(ui, "默认数据库", &mut form.profile.schema, "选填");
+                                });
+                        });
+                        ui.add_space(10.0);
+                        style::card(egui::Margin::same(14)).show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.label(RichText::new("传输与安全").strong().color(style::ink()));
+                            ui.add_space(4.0);
+                            let mut http = form.profile.http.is_some();
+                            if ui
+                                .checkbox(&mut http, "通过 HTTP / HTTPS 隧道连接")
+                                .changed()
+                            {
+                                form.profile.http = http.then(state::HttpProfile::default);
+                                form.web_password.clear();
+                                form.proxy_password.clear();
+                            }
+                            if http {
+                                http_connection_fields(ui, form);
+                            } else {
+                                ui.checkbox(&mut form.profile.tls, "启用 TLS 并验证服务器证书");
+                                if form.profile.tls {
                                     ui.horizontal(|ui| {
                                         ui.add(
-                                            TextEdit::singleline(&mut form.profile.ssh_known_hosts)
-                                                .desired_width(235.0)
-                                                .hint_text("默认 known_hosts"),
+                                            TextEdit::singleline(&mut form.profile.ca)
+                                                .desired_width(350.0)
+                                                .hint_text("CA 证书文件（选填）"),
                                         );
                                         if ui.button("浏览…").clicked()
                                             && let Some(path) = rfd::FileDialog::new()
-                                                .set_title("选择 SSH 主机密钥文件")
+                                                .set_title("选择 CA 证书文件")
                                                 .pick_file()
                                         {
-                                            form.profile.ssh_known_hosts =
+                                            form.profile.ca = path.to_string_lossy().into_owned();
+                                        }
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.add(
+                                            TextEdit::singleline(&mut form.profile.client_identity)
+                                                .desired_width(350.0)
+                                                .hint_text("客户端证书链（选填）"),
+                                        );
+                                        if ui.button("浏览…").clicked()
+                                            && let Some(path) = rfd::FileDialog::new()
+                                                .set_title("选择客户端证书链")
+                                                .add_filter(
+                                                    "证书文件",
+                                                    &["pem", "crt", "cer", "der"],
+                                                )
+                                                .pick_file()
+                                        {
+                                            form.profile.client_identity =
                                                 path.to_string_lossy().into_owned();
                                         }
                                     });
-                                    ui.end_row();
-                                    let mut fixed = form.profile.ssh_local_port.is_some();
-                                    if ui.checkbox(&mut fixed, "指定本地转发端口").changed()
-                                    {
-                                        form.profile.ssh_local_port = fixed.then_some(33060);
-                                    }
-                                    if let Some(port) = &mut form.profile.ssh_local_port {
-                                        ui.add(egui::DragValue::new(port).range(1..=65535));
-                                    } else {
-                                        ui.label("自动分配");
-                                    }
-                                    ui.end_row();
-                                });
+                                    ui.horizontal(|ui| {
+                                        ui.add(
+                                            TextEdit::singleline(
+                                                &mut form.profile.client_private_key,
+                                            )
+                                            .desired_width(350.0)
+                                            .hint_text("客户端私钥文件（选填）"),
+                                        );
+                                        if ui.button("浏览…").clicked()
+                                            && let Some(path) = rfd::FileDialog::new()
+                                                .set_title("选择客户端私钥")
+                                                .add_filter("私钥文件", &["pem", "key", "der"])
+                                                .pick_file()
+                                        {
+                                            form.profile.client_private_key =
+                                                path.to_string_lossy().into_owned();
+                                        }
+                                    });
+                                }
+                                ui.checkbox(&mut form.profile.ssh, "通过 SSH 隧道连接");
+                                if form.profile.ssh {
+                                    ui.label(
+                                        RichText::new("SSH 隧道使用已登记的主机密钥验证服务器。")
+                                            .small()
+                                            .color(style::muted()),
+                                    );
+                                    ui.horizontal(|ui| {
+                                        ui.selectable_value(
+                                            &mut form.profile.ssh_password_auth,
+                                            false,
+                                            "系统密钥或代理",
+                                        );
+                                        ui.selectable_value(
+                                            &mut form.profile.ssh_password_auth,
+                                            true,
+                                            "密码",
+                                        );
+                                    });
+                                    egui::Grid::new("ssh-fields")
+                                        .num_columns(2)
+                                        .spacing([14.0, 7.0])
+                                        .show(ui, |ui| {
+                                            field(
+                                                ui,
+                                                "SSH 主机",
+                                                &mut form.profile.ssh_host,
+                                                "bastion.example.net",
+                                            );
+                                            ui.label(
+                                                RichText::new("SSH 端口").color(style::muted()),
+                                            );
+                                            ui.add(
+                                                egui::DragValue::new(&mut form.profile.ssh_port)
+                                                    .range(1..=65535),
+                                            );
+                                            ui.end_row();
+                                            field(
+                                                ui,
+                                                "SSH 用户名",
+                                                &mut form.profile.ssh_user,
+                                                if form.profile.ssh_password_auth {
+                                                    "必填"
+                                                } else {
+                                                    "选填"
+                                                },
+                                            );
+                                            if form.profile.ssh_password_auth {
+                                                ui.label(
+                                                    RichText::new("SSH 密码").color(style::muted()),
+                                                );
+                                                ui.add(
+                                                    TextEdit::singleline(&mut form.ssh_password)
+                                                        .password(true)
+                                                        .desired_width(310.0),
+                                                );
+                                                ui.end_row();
+                                            } else {
+                                                ui.label(
+                                                    RichText::new("私钥文件").color(style::muted()),
+                                                );
+                                                ui.horizontal(|ui| {
+                                                    if ui
+                                                        .add(
+                                                            TextEdit::singleline(
+                                                                &mut form.profile.ssh_key,
+                                                            )
+                                                            .desired_width(235.0)
+                                                            .hint_text("OpenSSH 或 PuTTY .ppk"),
+                                                        )
+                                                        .changed()
+                                                    {
+                                                        form.ssh_key_passphrase.clear();
+                                                    }
+                                                    if ui.button("浏览…").clicked()
+                                                        && let Some(path) = rfd::FileDialog::new()
+                                                            .set_title("选择 SSH 私钥")
+                                                            .pick_file()
+                                                    {
+                                                        form.profile.ssh_key =
+                                                            path.to_string_lossy().into_owned();
+                                                        form.ssh_key_passphrase.clear();
+                                                    }
+                                                });
+                                                ui.end_row();
+                                                if !form.profile.ssh_key.trim().is_empty() {
+                                                    ui.label(
+                                                        RichText::new("私钥口令")
+                                                            .color(style::muted()),
+                                                    );
+                                                    ui.add(
+                                                        TextEdit::singleline(
+                                                            &mut form.ssh_key_passphrase,
+                                                        )
+                                                        .password(true)
+                                                        .desired_width(310.0)
+                                                        .hint_text("私钥已加密时填写"),
+                                                    );
+                                                    ui.end_row();
+                                                }
+                                            }
+                                            ui.label(
+                                                RichText::new("主机密钥文件").color(style::muted()),
+                                            );
+                                            ui.horizontal(|ui| {
+                                                ui.add(
+                                                    TextEdit::singleline(
+                                                        &mut form.profile.ssh_known_hosts,
+                                                    )
+                                                    .desired_width(235.0)
+                                                    .hint_text("默认 known_hosts"),
+                                                );
+                                                if ui.button("浏览…").clicked()
+                                                    && let Some(path) = rfd::FileDialog::new()
+                                                        .set_title("选择 SSH 主机密钥文件")
+                                                        .pick_file()
+                                                {
+                                                    form.profile.ssh_known_hosts =
+                                                        path.to_string_lossy().into_owned();
+                                                }
+                                            });
+                                            ui.end_row();
+                                            let mut fixed = form.profile.ssh_local_port.is_some();
+                                            if ui.checkbox(&mut fixed, "指定本地转发端口").changed()
+                                            {
+                                                form.profile.ssh_local_port = fixed.then_some(33060);
+                                            }
+                                            if let Some(port) = &mut form.profile.ssh_local_port {
+                                                ui.add(
+                                                    egui::DragValue::new(port).range(1..=65535),
+                                                );
+                                            } else {
+                                                ui.label(
+                                                    RichText::new("自动分配").color(style::muted()),
+                                                );
+                                            }
+                                            ui.end_row();
+                                        });
+                                }
                             }
-                        }
-                        connection_advanced_fields(ui, form);
+                            ui.add_space(4.0);
+                            connection_advanced_fields(ui, form);
+                        });
                     })
                 });
             if testing {
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label("正在测试连接…");
+                    ui.label(RichText::new("正在测试连接…").color(style::accent()));
                 });
             }
             if has_feedback {
+                ui.add_space(6.0);
                 egui::ScrollArea::vertical()
                     .id_salt("connection-feedback")
-                    .max_height(84.0)
+                    .max_height(88.0)
                     .show(ui, |ui| {
                         if !form.error.is_empty() {
-                            ui.colored_label(style::ERROR, &form.error);
+                            style::banner(ui, &form.error, style::error(), style::error_soft());
                         }
                         if let Some(probe) = &form.test_result {
                             let compression = probe
@@ -1620,25 +1755,24 @@ impl Workbench {
                                 .database
                                 .as_ref()
                                 .map_or_else(String::new, |schema| format!("，数据库 {schema}"));
-                            ui.label(
-                                RichText::new(format!(
-                                    "上次测试成功：{}，{}{}{}，用时 {} 毫秒",
-                                    probe.version,
-                                    probe.transport,
-                                    compression,
-                                    schema,
-                                    probe.elapsed.as_millis()
-                                ))
-                                .color(style::SUCCESS),
+                            let summary = format!(
+                                "上次测试成功：{}，{}{}{}，用时 {} 毫秒",
+                                probe.version,
+                                probe.transport,
+                                compression,
+                                schema,
+                                probe.elapsed.as_millis()
                             );
+                            style::banner(ui, &summary, style::success(), style::success_soft());
                         }
                         if !form.notice.is_empty() {
-                            ui.label(&form.notice);
+                            style::banner(ui, &form.notice, style::accent(), style::accent_soft());
                         }
                     });
             }
-            ui.add_space(6.0);
+            ui.add_space(8.0);
             ui.separator();
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
                 test = ui
                     .add_enabled(!testing, Button::new("测试连接"))
@@ -1650,7 +1784,7 @@ impl Workbench {
                 forget = ui
                     .add_enabled(
                         !testing && form.saved.is_some() && self.profiles_readable,
-                        Button::new(RichText::new("删除连接配置").color(style::ERROR)),
+                        Button::new(RichText::new("删除连接配置").color(style::error())),
                     )
                     .clicked();
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1674,9 +1808,7 @@ impl Workbench {
                         let summary = report.summary();
                         self.profiles = report.profiles;
                         if let Some(index) = report.first_imported {
-                            form.saved = Some(index);
-                            form.profile = self.profiles[index].clone();
-                            form.reset_private();
+                            form.load_profile(self.profiles[index].clone(), Some(index));
                         }
                         form.error.clear();
                         form.notice = summary;
@@ -1777,6 +1909,7 @@ impl Workbench {
             return;
         }
         if save {
+            form.sync_passwords_to_profile();
             let mut profiles = self.profiles.clone();
             let index = form.saved.unwrap_or(profiles.len());
             if index == profiles.len() {
@@ -1789,8 +1922,12 @@ impl Workbench {
                     self.profiles = profiles;
                     form.saved = Some(index);
                     form.error.clear();
+                    form.notice = "已保存连接配置与密码。".into();
                 }
-                Err(error) => form.error = error,
+                Err(error) => {
+                    form.notice.clear();
+                    form.error = error;
+                }
             }
         }
         if connect {
@@ -1801,6 +1938,7 @@ impl Workbench {
                     return;
                 }
             };
+            form.sync_passwords_to_profile();
             let form = self.connection.take().expect("connection form");
             let config = form.profile.config(
                 form.password,
@@ -1815,6 +1953,15 @@ impl Workbench {
                 .map(|profile| profile.config(form.web_password, form.proxy_password));
             let label = form.profile.label.clone();
             if let Some(index) = form.edit_existing {
+                self.active = index;
+                let workspace = self.ws();
+                workspace.label = label;
+                workspace.profile = Some(form.profile);
+                workspace.connect(config, tunnel);
+            } else if let Some(index) =
+                (0..self.workspaces.len()).find(|&index| self.is_placeholder_workspace(index))
+            {
+                // 首次连接直接接管启动默认的占位工作区，避免残留“临时查询”
                 self.active = index;
                 let workspace = self.ws();
                 workspace.label = label;
@@ -1867,19 +2014,11 @@ impl Workbench {
         let mut favorite = None;
         let name = self.preferences.query_keys().0.name();
         egui::TopBottomPanel::top("application-bar")
-            .frame(style::bar(egui::Margin::symmetric(16, 8)))
+            .frame(style::bar(egui::Margin::symmetric(10, 5)))
             .show(ctx, |ui| {
+                style::paint_bottom_hairline(ui);
                 let compact = ui.available_width() < 760.0;
                 ui.horizontal_wrapped(|ui| {
-                    ui.image((self.brand_icon.id(), egui::vec2(25.0, 25.0)));
-                    ui.label(
-                        RichText::new(APP_NAME)
-                            .size(19.0)
-                            .strong()
-                            .color(style::INK),
-                    );
-                    ui.add_space(6.0);
-                    ui.separator();
                     style::menu(ui, "文件", |ui| {
                         let current = &self.workspaces[self.active];
                         let active_connection = current.server.is_some();
@@ -2468,10 +2607,16 @@ impl Workbench {
                     });
                     help::menu(ui, &mut self.help);
                     if compact {
+                        if style::theme_toggle_button(ui).clicked() {
+                            style::toggle_theme(ctx);
+                        }
                         connect = ui.add(style::primary("新建连接")).clicked();
                     } else {
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             connect = ui.add(style::primary("新建连接")).clicked();
+                            if style::theme_toggle_button(ui).clicked() {
+                                style::toggle_theme(ctx);
+                            }
                         });
                     }
                 });
@@ -2569,14 +2714,25 @@ impl Workbench {
     }
 
     fn workspace_bar(&mut self, ctx: &egui::Context) {
+        // 未建立任何连接前隐藏默认占位工作区条，避免顶部多出一个无用的“临时查询”
+        if self.workspaces.len() == 1 && self.is_placeholder_workspace(0) {
+            return;
+        }
         let mut close = None;
         let mut active_action = None;
         let mut select = None;
+        let mut switch_schema: Option<String> = None;
         let key = self.workspaces[self.active].key;
         let reveal = self.visible_workspace.replace(key) != Some(key);
+        let active_connected = self.workspaces[self.active].server.is_some();
+        let active_db = self.workspaces[self.active]
+            .active_database()
+            .map(str::to_owned);
+        let active_schemas = self.workspaces[self.active].schemas.clone();
         egui::TopBottomPanel::top("workspace-bar")
-            .frame(style::pane(egui::Margin::symmetric(15, 6)))
+            .frame(style::chrome_bar(egui::Margin::symmetric(14, 5)))
             .show(ctx, |ui| {
+                style::paint_bottom_hairline(ui);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if self.workspaces.len() > 1 {
                         ui.menu_button("连接列表", |ui| {
@@ -2601,23 +2757,72 @@ impl Workbench {
                         .on_hover_text("切换连接（Ctrl+Tab / Ctrl+Shift+Tab）");
                     }
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        let tabs_max_width = if active_connected {
+                            (ui.available_width() - 256.0).max(160.0)
+                        } else {
+                            ui.available_width().max(160.0)
+                        };
                         egui::ScrollArea::horizontal()
-                            .auto_shrink([false, true])
+                            .max_width(tabs_max_width)
+                            .auto_shrink([true, true])
                             .show(ui, |ui| {
                                 for (index, workspace) in self.workspaces.iter().enumerate() {
                                     ui.push_id(workspace.key, |ui| {
                                         let selected = self.active == index;
-                                        let label =
-                                            RichText::new(navigation::workspace_label(workspace))
-                                                .color(if selected {
-                                                    style::ACCENT
+                                        let connected = workspace.server.is_some();
+                                        let dot_color = if workspace.busy() {
+                                            style::accent()
+                                        } else if connected {
+                                            style::success()
+                                        } else {
+                                            style::subtle()
+                                        };
+                                        let response = egui::Frame::new()
+                                            .fill(if selected {
+                                                style::surface()
+                                            } else {
+                                                style::panel()
+                                            })
+                                            .stroke(egui::Stroke::new(
+                                                1.0_f32,
+                                                if selected {
+                                                    style::border()
                                                 } else {
-                                                    style::MUTED
+                                                    style::border_subtle()
+                                                },
+                                            ))
+                                            .corner_radius(egui::CornerRadius::same(6))
+                                            .inner_margin(egui::Margin::symmetric(9, 3))
+                                            .show(ui, |ui| {
+                                                ui.horizontal(|ui| {
+                                                    ui.spacing_mut().item_spacing.x = 5.0;
+                                                    style::draw_status_dot(ui, dot_color, connected);
+                                                    let label = if selected {
+                                                        RichText::new(&workspace.label)
+                                                            .strong()
+                                                            .color(style::ink())
+                                                    } else {
+                                                        RichText::new(&workspace.label)
+                                                            .color(style::muted())
+                                                    };
+                                                    ui.add(
+                                                        egui::Label::new(label).selectable(false),
+                                                    );
                                                 });
-                                        let response = ui.add(
-                                            Button::selectable(selected, label)
-                                                .min_size(egui::vec2(0.0, 26.0)),
-                                        );
+                                            })
+                                            .response
+                                            .interact(egui::Sense::click());
+                                        if selected {
+                                            let rect = response.rect;
+                                            ui.painter().rect_filled(
+                                                egui::Rect::from_min_max(
+                                                    egui::pos2(rect.left() + 6.0, rect.bottom() - 2.0),
+                                                    egui::pos2(rect.right() - 6.0, rect.bottom()),
+                                                ),
+                                                egui::CornerRadius::same(1),
+                                                style::accent(),
+                                            );
+                                        }
                                         if reveal && selected {
                                             response.scroll_to_me(None);
                                         }
@@ -2647,11 +2852,49 @@ impl Workbench {
                                     });
                                 }
                             });
+                        if active_connected {
+                            ui.separator();
+                            draw_database_icon(ui, style::accent());
+                            let selected_label = active_db.as_deref().unwrap_or("选择默认数据库");
+                            let text = if active_db.is_some() {
+                                RichText::new(selected_label).strong().color(style::ink())
+                            } else {
+                                RichText::new(selected_label).color(style::muted())
+                            };
+                            egui::ComboBox::from_id_salt(("active-database-selector", key))
+                                .width(196.0)
+                                .height(340.0)
+                                .selected_text(text)
+                                .show_ui(ui, |ui| {
+                                    if active_schemas.is_empty() {
+                                        ui.label(
+                                            RichText::new("暂无可选数据库")
+                                                .small()
+                                                .color(style::muted()),
+                                        );
+                                    } else {
+                                        for schema in &active_schemas {
+                                            let is_current =
+                                                active_db.as_deref() == Some(schema.as_str());
+                                            if ui.selectable_label(is_current, schema).clicked() {
+                                                switch_schema = Some(schema.clone());
+                                            }
+                                        }
+                                    }
+                                })
+                                .response
+                                .on_hover_text(
+                                    "当前默认数据库：执行 SQL 时默认在此数据库中运行",
+                                );
+                        }
                     });
                 });
             });
         if let Some(index) = select {
             self.activate_workspace(ctx, index);
+        }
+        if let Some(schema) = switch_schema {
+            self.workspaces[self.active].request_schema_switch(schema);
         }
         if let Some(index) = close {
             let unsaved_design = self.design_tabs.dirty(Some(self.workspaces[index].key));
@@ -2956,65 +3199,81 @@ impl Workbench {
             egui::Id::new("status-bar")
         };
         let panel =
-            egui::TopBottomPanel::bottom(id).frame(style::pane(egui::Margin::symmetric(13, 5)));
+            egui::TopBottomPanel::bottom(id).frame(style::pane(egui::Margin::symmetric(14, 6)));
         host.bottom(panel, |ui| {
-            ui.horizontal(|ui| {
-                if workspace.busy() {
-                    ui.spinner();
-                }
-                let restore_label = workspace.restore_status();
-                let label = if let Some(label) = &restore_label {
-                    label.as_str()
-                } else if workspace.status.is_empty() {
-                    "就绪"
-                } else {
-                    &workspace.status
-                };
-                ui.add(
-                    egui::Label::new(RichText::new(label).small().color(style::MUTED)).truncate(),
-                )
-                .on_hover_text(label);
-                if workspace.restoring() {
-                    if let Some(progress) = &workspace.restore_progress
-                        && progress.total_bytes > 0
-                    {
-                        let fraction = progress.bytes as f64 / progress.total_bytes as f64;
-                        ui.add(
-                            egui::ProgressBar::new(fraction.clamp(0.0, 1.0) as f32)
-                                .desired_width(100.0)
-                                .show_percentage(),
-                        );
-                    }
-                    if ui
-                        .add_enabled(workspace.can_stop_restore(), egui::Button::new("停止还原"))
-                        .on_hover_text("停止提交后续 SQL。已经提交的更改可能保留。")
-                        .clicked()
-                    {
-                        workspace.stop_restore();
-                    }
-                }
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if let Some(server) = &workspace.server {
-                        ui.label(RichText::new(&server.version).small())
-                            .on_hover_text(if server.http_tunnel {
-                                "HTTP 隧道：每次请求独立连接。".to_owned()
-                            } else {
-                                format!("连接 ID：{}", server.connection_id)
-                            });
-                        ui.separator();
-                        ui.label(
-                            RichText::new(server.database.as_deref().unwrap_or("未选择默认数据库"))
-                                .small(),
-                        );
-                        if !workspace.busy() {
-                            let (dot, _) =
-                                ui.allocate_exact_size(egui::vec2(8.0, 12.0), egui::Sense::hover());
-                            ui.painter()
-                                .circle_filled(dot.center(), 3.0, style::SUCCESS);
-                        }
+            style::paint_top_hairline(ui);
+            // 先从右侧排布数据库名和版本徽章，再让左侧状态文本在剩余宽度内截断，避免长消息覆盖右侧信息
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if let Some(server) = &workspace.server {
+                    let version_tip = if server.http_tunnel {
+                        "HTTP 隧道：每次请求独立连接。".to_owned()
                     } else {
-                        ui.label(RichText::new("未连接").small().color(style::MUTED));
+                        format!("连接 ID：{}", server.connection_id)
+                    };
+                    egui::Frame::new()
+                        .fill(style::chrome())
+                        .corner_radius(egui::CornerRadius::same(5))
+                        .inner_margin(egui::Margin::symmetric(7, 1))
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new(&server.version)
+                                    .small()
+                                    .monospace()
+                                    .color(style::muted()),
+                            )
+                            .on_hover_text(version_tip);
+                        });
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(workspace.active_database().unwrap_or("未选择默认数据库"))
+                            .small()
+                            .strong()
+                            .color(style::ink()),
+                    );
+                    if !workspace.busy() {
+                        style::draw_status_dot(ui, style::success(), true);
                     }
+                } else {
+                    ui.label(RichText::new("未连接").small().color(style::muted()));
+                    style::draw_status_dot(ui, style::subtle(), false);
+                }
+                ui.add_space(12.0);
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    if workspace.busy() {
+                        ui.spinner();
+                    }
+                    if workspace.restoring() {
+                        if let Some(progress) = &workspace.restore_progress
+                            && progress.total_bytes > 0
+                        {
+                            let fraction = progress.bytes as f64 / progress.total_bytes as f64;
+                            ui.add(
+                                egui::ProgressBar::new(fraction.clamp(0.0, 1.0) as f32)
+                                    .desired_width(108.0)
+                                    .show_percentage(),
+                            );
+                        }
+                        if ui
+                            .add_enabled(workspace.can_stop_restore(), style::danger("停止还原"))
+                            .on_hover_text("停止提交后续 SQL。已经提交的更改可能保留。")
+                            .clicked()
+                        {
+                            workspace.stop_restore();
+                        }
+                    }
+                    let restore_label = workspace.restore_status();
+                    let label = if let Some(label) = &restore_label {
+                        label.as_str()
+                    } else if workspace.status.is_empty() {
+                        "就绪"
+                    } else {
+                        &workspace.status
+                    };
+                    ui.add(
+                        egui::Label::new(RichText::new(label).small().color(style::muted()))
+                            .truncate(),
+                    )
+                    .on_hover_text(label);
                 });
             });
         });
@@ -3037,6 +3296,7 @@ impl Workbench {
         request_focus: bool,
     ) {
         let mut action = None;
+        let mut schema_switch: Option<String> = None;
         let mut reconnect = false;
         let key = self.workspaces[index].key;
         let layout = self.design_tabs.active(key).filter(|_| self.show_editor);
@@ -3072,8 +3332,17 @@ impl Workbench {
             .width_range(minimum..=430.0)
             .frame(style::pane(egui::Margin::symmetric(12, 12)));
         host.side(panel, |ui| {
+            style::paint_right_hairline(ui);
             ui.horizontal(|ui| {
-                ui.label(RichText::new("数据库").size(16.0).strong());
+                ui.label(RichText::new("数据库").size(15.0).strong().color(style::ink()));
+                if workspace.server.is_some() && !workspace.schemas.is_empty() {
+                    style::badge(
+                        ui,
+                        workspace.schemas.len().to_string(),
+                        style::muted(),
+                        style::chrome(),
+                    );
+                }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if workspace.server.is_some() {
                         if ui
@@ -3090,20 +3359,33 @@ impl Workbench {
                     }
                 });
             });
-            ui.add_space(6.0);
+            ui.add_space(8.0);
             if workspace.server.is_none() {
-                ui.label(RichText::new("连接后即可浏览数据库对象。").color(style::MUTED));
+                style::card(egui::Margin::same(14)).show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(6.0);
+                        style::draw_status_dot(ui, style::subtle(), false);
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new("连接后即可浏览数据库对象。")
+                                .small()
+                                .color(style::muted()),
+                        );
+                        ui.add_space(6.0);
+                    });
+                });
                 return;
             }
             ui.horizontal(|ui| {
                 ui.add(
                     TextEdit::singleline(&mut workspace.schema_filter)
                         .hint_text("筛选数据库和对象")
-                        .margin(egui::Margin::symmetric(8, 5))
+                        .margin(egui::Margin::symmetric(10, 6))
                         .desired_width(f32::INFINITY),
                 );
             });
-            ui.add_space(7.0);
+            ui.add_space(8.0);
             let filter = workspace.schema_filter.to_lowercase();
             let focus_schema = workspace
                 .selected
@@ -3125,13 +3407,9 @@ impl Workbench {
                     {
                         continue;
                     }
-                    let current = workspace
-                        .server
-                        .as_ref()
-                        .and_then(|server| server.database.as_ref())
-                        == Some(schema);
+                    let current = workspace.active_database() == Some(schema.as_str());
                     let label = if current {
-                        RichText::new(schema).strong().color(style::ACCENT)
+                        RichText::new(schema).strong().color(style::accent())
                     } else {
                         RichText::new(schema).strong()
                     };
@@ -3165,7 +3443,10 @@ impl Workbench {
                                 if matches.is_empty() && !matches_schema {
                                     continue;
                                 }
-                                let group = egui::CollapsingHeader::new(kind_label(kind))
+                                let folder_label = RichText::new(kind_label(kind))
+                                    .color(style::object_kind_color(kind))
+                                    .strong();
+                                let group = egui::CollapsingHeader::new(folder_label)
                                     .id_salt((schema, kind_label(kind)))
                                     .default_open(kind == ObjectKind::Table)
                                     .show(ui, |ui| {
@@ -3193,12 +3474,14 @@ impl Workbench {
                                                 object_focus = Some(response.clone());
                                             }
                                             if response.double_clicked() {
+                                                schema_switch = Some(object.schema.clone());
                                                 action = Some(object_double_click(
                                                     object,
                                                     design_open,
                                                     insert_object_name,
                                                 ));
                                             } else if response.clicked() {
+                                                schema_switch = Some(object.schema.clone());
                                                 action = Some(BrowseAction::SelectObject(
                                                     object.clone(),
                                                 ));
@@ -3208,11 +3491,17 @@ impl Workbench {
                                             });
                                         }
                                     });
+                                if group.header_response.clicked() {
+                                    schema_switch = Some(schema.clone());
+                                }
                                 group.header_response.context_menu(|ui| {
                                     objects::folder_menu(ui, schema, kind, &mut action);
                                 });
                             }
                         });
+                    if header.header_response.clicked() {
+                        schema_switch = Some(schema.clone());
+                    }
                     if request_focus && (schema_focus.is_none() || focus_schema == Some(schema)) {
                         schema_focus = Some(header.header_response.clone());
                     }
@@ -3231,6 +3520,9 @@ impl Workbench {
         }
         if let Some(action) = action {
             self.browse(ctx, action);
+        }
+        if let Some(schema) = schema_switch {
+            self.workspaces[index].request_schema_switch(schema);
         }
     }
 
@@ -3258,7 +3550,7 @@ impl Workbench {
                 workspace.refresh_objects(schema, "正在刷新对象列表…");
             }
             BrowseAction::UseSchema(schema) => {
-                workspace.send(Command::UseSchema { schema }, "正在切换默认数据库…");
+                workspace.request_schema_switch(schema);
             }
             BrowseAction::SelectObject(object)
                 if workspace.output == state::Output::Data && object.kind == ObjectKind::Table =>
@@ -3527,7 +3819,6 @@ impl Workbench {
         let mut close_tab = None;
         let mut close_builder = None;
         let mut rename_tab = None;
-        let mut open_connection = false;
         let mut design_action = None;
         let mut builder_action = None;
         let confirm_tab_close = self.preferences.confirm_tab_close;
@@ -3537,105 +3828,141 @@ impl Workbench {
         let designs = &mut self.design_tabs;
         let panel = egui::CentralPanel::default().frame(style::bar(egui::Margin::same(0)));
         host.central(panel, |ui| {
-            style::pane(egui::Margin::symmetric(12, 6)).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let mut next_query = None;
-                    let mut next_layout = None;
-                    let document = designs
-                        .active(key)
-                        .unwrap_or(Document::Query(workspace.tab().id));
-                    let reveal = active
-                        && self.visible_document.replace((key, document)) != Some((key, document));
-                    egui::ScrollArea::horizontal()
-                        .id_salt(("editor-tab-bar", key))
-                        .auto_shrink([true, true])
-                        .max_width((ui.available_width() - 44.0).max(96.0))
-                        .show(ui, |ui| {
-                            for (tab_index, tab) in workspace.tabs.iter().enumerate() {
+            // 整行撑满宽度的 IDE 页签栏，激活页签与下方工具栏无缝融合
+            egui::Frame::new()
+                .fill(style::chrome())
+                .inner_margin(egui::Margin {
+                    left: 10,
+                    right: 10,
+                    top: 6,
+                    bottom: 0,
+                })
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    style::paint_bottom_hairline(ui);
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        let mut next_query = None;
+                        let mut next_layout = None;
+                        let document = designs
+                            .active(key)
+                            .unwrap_or(Document::Query(workspace.tab().id));
+                        let reveal = active
+                            && self.visible_document.replace((key, document))
+                                != Some((key, document));
+                        egui::ScrollArea::horizontal()
+                            .id_salt(("editor-tab-bar", key))
+                            .auto_shrink([true, true])
+                            .max_width((ui.available_width() - 40.0).max(96.0))
+                            .show(ui, |ui| {
                                 ui.horizontal(|ui| {
-                                    let selected = document == Document::Query(tab.id);
-                                    let response = ui
-                                        .add(
-                                            Button::selectable(selected, tab.label())
-                                                .min_size(egui::vec2(0.0, 26.0)),
-                                        )
-                                        .on_hover_ui(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 4.0;
+                                    for (tab_index, tab) in workspace.tabs.iter().enumerate() {
+                                        let selected = document == Document::Query(tab.id);
+                                        let (response, closed) = style::editor_tab(
+                                            ui,
+                                            ("query-tab", key, tab.id),
+                                            &tab.label(),
+                                            selected,
+                                            style::accent(),
+                                            true,
+                                            "关闭查询",
+                                        );
+                                        let response = response.on_hover_ui(|ui| {
                                             ui.label(tab.title());
                                             if let Some(path) = &tab.path {
-                                                ui.label(path.to_string_lossy());
+                                                ui.label(
+                                                    RichText::new(path.to_string_lossy())
+                                                        .small()
+                                                        .color(style::muted()),
+                                                );
                                             }
                                         });
-                                    if reveal && selected {
-                                        response.scroll_to_me(None);
-                                    }
-                                    if response.clicked() {
-                                        next_query = Some(tab_index);
-                                    }
-                                    response.context_menu(|ui| {
-                                        if ui.button("重命名查询页…").clicked() {
-                                            rename_tab = Some(tab.id);
-                                            ui.close();
+                                        if reveal && selected {
+                                            response.scroll_to_me(None);
                                         }
-                                    });
-                                    if selected
-                                        && ui.small_button("×").on_hover_text("关闭查询").clicked()
-                                    {
-                                        close_tab = Some(tab_index);
+                                        if response.clicked() {
+                                            next_query = Some(tab_index);
+                                        }
+                                        response.context_menu(|ui| {
+                                            if ui.button("重命名查询页…").clicked() {
+                                                rename_tab = Some(tab.id);
+                                                ui.close();
+                                            }
+                                            if ui.button("关闭查询").clicked() {
+                                                close_tab = Some(tab_index);
+                                                ui.close();
+                                            }
+                                        });
+                                        if closed {
+                                            close_tab = Some(tab_index);
+                                        }
+                                    }
+                                    for (tab, label) in designs.list(key) {
+                                        let selected = document == tab;
+                                        let (accent_color, closable, close_tip) = match tab {
+                                            Document::Builder(_) => {
+                                                (style::cyan(), true, "关闭查询设计")
+                                            }
+                                            Document::Design(_) => {
+                                                (style::success(), false, "")
+                                            }
+                                            Document::Query(_) => (style::accent(), false, ""),
+                                        };
+                                        let (response, closed) = style::editor_tab(
+                                            ui,
+                                            ("design-tab", key, tab),
+                                            &label,
+                                            selected,
+                                            accent_color,
+                                            closable,
+                                            close_tip,
+                                        );
+                                        if reveal && selected {
+                                            response.scroll_to_me(None);
+                                        }
+                                        if response.clicked() {
+                                            next_layout = Some(tab);
+                                        }
+                                        if closed
+                                            && let Document::Builder(id) = tab
+                                        {
+                                            close_builder = Some(id);
+                                        }
                                     }
                                 });
-                            }
-                            for (tab, label) in designs.list(key) {
-                                ui.horizontal(|ui| {
-                                    let selected = document == tab;
-                                    let response = ui.add(
-                                        Button::selectable(selected, label)
-                                            .min_size(egui::vec2(0.0, 26.0)),
-                                    );
-                                    if reveal && selected {
-                                        response.scroll_to_me(None);
-                                    }
-                                    if response.clicked() {
-                                        next_layout = Some(tab);
-                                    }
-                                    if selected
-                                        && let Document::Builder(id) = tab
-                                        && ui
-                                            .small_button("×")
-                                            .on_hover_text("关闭查询设计")
-                                            .clicked()
-                                    {
-                                        close_builder = Some(id);
-                                    }
-                                });
-                            }
-                        });
-                    if let Some(tab) = next_query {
-                        workspace.select_tab(tab);
-                        designs.select_query(key);
-                        self.completion.close();
-                        ctx.memory_mut(|memory| {
-                            memory.request_focus(editor_tools::editor_id(workspace));
-                        });
-                    } else if let Some(tab) = next_layout {
-                        designs.select(key, tab);
-                    }
-                    ui.menu_button("+", |ui| {
-                        for (label, action) in [
-                            ("新建查询", Edit::New),
-                            ("新建查询设计", Edit::NewQueryDesign),
-                            ("新建架构设计", Edit::NewSchemaDesign),
-                        ] {
-                            if ui.button(label).clicked() {
-                                edit = Some(action);
-                                ui.close();
-                            }
+                            });
+                        if let Some(tab) = next_query {
+                            workspace.select_tab(tab);
+                            designs.select_query(key);
+                            self.completion.close();
+                            ctx.memory_mut(|memory| {
+                                memory.request_focus(editor_tools::editor_id(workspace));
+                            });
+                        } else if let Some(tab) = next_layout {
+                            designs.select(key, tab);
                         }
-                    })
-                    .response
-                    .on_hover_text("新建页签");
+                        ui.add_space(2.0);
+                        style::icon_menu_button(
+                            ui,
+                            style::ToolbarIcon::AddRow,
+                            true,
+                            "新建页签（查询 / 查询设计 / 架构设计）",
+                            |ui| {
+                                for (label, action) in [
+                                    ("新建查询", Edit::New),
+                                    ("新建查询设计", Edit::NewQueryDesign),
+                                    ("新建架构设计", Edit::NewSchemaDesign),
+                                ] {
+                                    if ui.button(label).clicked() {
+                                        edit = Some(action);
+                                        ui.close();
+                                    }
+                                }
+                            },
+                        );
+                    });
                 });
-            });
-            ui.separator();
             if let Some(Document::Design(id)) = designs.active(key)
                 && let Some(designer) = designs.schema_mut(id)
             {
@@ -3664,7 +3991,8 @@ impl Workbench {
                 }
                 return;
             }
-            style::bar(egui::Margin::symmetric(13, 7)).show(ui, |ui| {
+            style::bar(egui::Margin::symmetric(12, 6)).show(ui, |ui| {
+                style::paint_bottom_hairline(ui);
                 ui.horizontal(|ui| {
                     let ready = workspace.server.is_some() && !workspace.busy();
                     let cancellable = workspace.cancellable();
@@ -3680,7 +4008,11 @@ impl Workbench {
                     let current = ui
                         .add_enabled(
                             ready || (stop_current && !stopping),
-                            style::primary(if stop_current { stop_label } else { "执行" }),
+                            if stop_current {
+                                style::danger(stop_label)
+                            } else {
+                                style::primary("执行")
+                            },
                         )
                         .on_hover_text(if stop_current {
                             stop_hint.to_owned()
@@ -3691,11 +4023,11 @@ impl Workbench {
                     let batch = ui
                         .add_enabled(
                             ready || (stop_batch && !stopping),
-                            Button::new(if stop_batch {
-                                stop_label
+                            if stop_batch {
+                                style::danger(stop_label)
                             } else {
-                                "批量执行"
-                            }),
+                                Button::new("批量执行")
+                            },
                         )
                         .on_hover_text(if stop_batch {
                             stop_hint.to_owned()
@@ -3713,31 +4045,22 @@ impl Workbench {
                     if ui.button("格式化").clicked() {
                         edit = Some(Edit::Text(editor_tools::Action::FormatAll));
                     }
-                    ui.separator();
-                    if workspace.server.is_some() {
-                        ui.menu_button("连接", |ui| {
-                            if ui
-                                .add_enabled(!workspace.busy(), Button::new("断开连接"))
-                                .clicked()
-                            {
-                                workspace.disconnect();
-                                ui.close();
-                            }
-                        });
-                    } else if workspace.profile.is_none() && ui.button("连接…").clicked() {
-                        open_connection = true;
-                    }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.add(
-                            egui::DragValue::new(&mut workspace.result_limit)
-                                .range(1..=10_000)
-                                .speed(20),
-                        );
-                        ui.label(RichText::new("结果行数上限").color(style::MUTED));
+                        style::subtle_card(egui::Margin::symmetric(9, 2)).show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new("结果行数上限").small().color(style::muted()),
+                                );
+                                ui.add(
+                                    egui::DragValue::new(&mut workspace.result_limit)
+                                        .range(1..=10_000)
+                                        .speed(20),
+                                );
+                            });
+                        });
                     });
                 });
             });
-            ui.separator();
             if active {
                 self.editor_tools.show(ui, workspace);
             }
@@ -3772,7 +4095,7 @@ impl Workbench {
                         .code_editor()
                         .font(settings.font.id())
                         .desired_width(f32::INFINITY)
-                        .margin(egui::Margin::symmetric(14, 12))
+                        .margin(egui::Margin::symmetric(18, 14))
                         .frame(false)
                         .show(ui);
                     if active && output.response.changed() {
@@ -3812,9 +4135,6 @@ impl Workbench {
                     }
                 });
         });
-        if open_connection {
-            self.new_connection(None);
-        }
         if let Some(edit) = edit {
             self.edit(ctx, edit);
         }
@@ -4063,6 +4383,14 @@ impl Workbench {
                     && is_single_profile_select(sql)
                 {
                     ws.start_profiled_query(sql.clone(), self.preferences.profile_options, false);
+                } else if matches!(edit, Edit::Current | Edit::Selection)
+                    && let [sql] = statements.as_slice()
+                    && is_single_profile_select(sql)
+                {
+                    // 单条 SELECT 默认以可切换目标表的只读结果返回（成功后切到结果页，出错自动切到消息页）
+                    if ws.start_f8_with_mode(index, sql.clone(), ws.result_limit, true) {
+                        self.show_output = true;
+                    }
                 } else {
                     ws.start_editor_batch(statements);
                 }
@@ -4408,7 +4736,7 @@ impl Workbench {
                     "放弃修改"
                 };
                 if ui
-                    .button(RichText::new(discard).color(style::ERROR))
+                    .button(RichText::new(discard).color(style::error()))
                     .clicked()
                 {
                     choice = Some(Choice::Discard);
@@ -4901,7 +5229,7 @@ impl eframe::App for Workbench {
 }
 
 fn field(ui: &mut egui::Ui, label: &str, value: &mut String, hint: &str) {
-    ui.label(label);
+    ui.label(RichText::new(label).color(style::muted()));
     ui.add(
         TextEdit::singleline(value)
             .desired_width(310.0)
@@ -4961,7 +5289,7 @@ fn http_connection_fields(ui: &mut egui::Ui, form: &mut ConnectionForm) {
                 .to_ascii_lowercase()
                 .starts_with("http://")
             {
-                ui.colored_label(style::ERROR, "HTTP 会明文传输连接信息和 SQL。");
+                ui.colored_label(style::error(), "HTTP 会明文传输连接信息和 SQL。");
             }
             ui.collapsing("网页认证和代理", |ui| {
                 egui::Grid::new("http-auth-proxy")
@@ -5083,6 +5411,28 @@ fn optional_seconds(
             ui.add(egui::DragValue::new(seconds).range(1..=max));
         }
     });
+}
+
+fn draw_database_icon(ui: &mut egui::Ui, color: egui::Color32) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 15.0), egui::Sense::hover());
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+    let painter = ui.painter();
+    let stroke = egui::Stroke::new(1.35_f32, color);
+    let left = rect.left() + 1.5;
+    let right = rect.right() - 1.5;
+    let top = rect.top() + 3.0;
+    let bottom = rect.bottom() - 2.5;
+    let mid_y = (top + bottom) * 0.5;
+    // Cylinder body with rounded top/bottom caps
+    let cap = egui::Rect::from_min_max(egui::pos2(left, top - 1.6), egui::pos2(right, top + 1.8));
+    painter.rect_filled(cap, egui::CornerRadius::same(3), color.gamma_multiply(0.22));
+    painter.rect_stroke(cap, egui::CornerRadius::same(3), stroke, egui::StrokeKind::Inside);
+    painter.line_segment([egui::pos2(left + 0.5, top + 0.5), egui::pos2(left + 0.5, bottom - 0.5)], stroke);
+    painter.line_segment([egui::pos2(right - 0.5, top + 0.5), egui::pos2(right - 0.5, bottom - 0.5)], stroke);
+    painter.line_segment([egui::pos2(left + 0.5, mid_y), egui::pos2(right - 0.5, mid_y)], egui::Stroke::new(1.1_f32, color.gamma_multiply(0.7)));
+    painter.line_segment([egui::pos2(left + 0.5, bottom), egui::pos2(right - 0.5, bottom)], stroke);
 }
 
 fn is_tabular(kind: ObjectKind) -> bool {

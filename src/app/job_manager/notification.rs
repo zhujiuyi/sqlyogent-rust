@@ -154,7 +154,7 @@ impl Editor {
                         ui.label(message);
                     }
                     Some(Err(error)) => {
-                        ui.colored_label(style::ERROR, error);
+                        ui.colored_label(style::error(), error);
                     }
                     None => {}
                 }
@@ -476,7 +476,7 @@ impl ReportMailForm {
         } else if let Some(result) = &self.test_result {
             match result {
                 Ok(()) => ui.label("SMTP 服务器已接受上次测试邮件。"),
-                Err(error) => ui.colored_label(style::ERROR, error),
+                Err(error) => ui.colored_label(style::error(), error),
             };
         }
     }

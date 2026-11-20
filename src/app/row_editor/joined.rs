@@ -22,7 +22,11 @@ impl Target {
     }
 
     fn label(&self) -> String {
-        format!("{} · {}.{}", self.alias, self.table.schema, self.table.name)
+        if self.alias == self.table.name {
+            self.table.name.clone()
+        } else {
+            format!("{} ({})", self.table.name, self.alias)
+        }
     }
 }
 
@@ -34,8 +38,15 @@ pub(super) struct Joined {
 }
 
 impl Joined {
-    pub(super) fn new(workspace: u64, tab: u64, response: JoinedEditablePage) -> Self {
-        let selected = response.targets.first().map(Target::new);
+    pub(super) fn new_with_mode(
+        workspace: u64,
+        tab: u64,
+        response: JoinedEditablePage,
+        default_read_only: bool,
+    ) -> Self {
+        let selected = (!default_read_only)
+            .then(|| response.targets.first().map(Target::new))
+            .flatten();
         Self {
             workspace,
             tab,
@@ -98,28 +109,33 @@ impl Joined {
     }
 
     pub(super) fn target_picker(&self, ui: &mut egui::Ui, enabled: bool) -> Option<Option<Target>> {
-        const READ_ONLY: &str = "只读 · 完整结果";
+        const READ_ONLY: &str = "(只读)";
         let mut choice = self.selected.clone();
         ui.horizontal(|ui| {
-            ui.label("写入目标");
-            ui.add_enabled_ui(enabled, |ui| {
-                egui::ComboBox::from_id_salt(("joined-target", self.workspace, self.tab))
-                    .selected_text(
-                        choice
-                            .as_ref()
-                            .map_or_else(|| READ_ONLY.into(), Target::label),
-                    )
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut choice, None, READ_ONLY);
-                        if let Some(reply) = &self.response {
-                            for target in &reply.targets {
-                                let target = Target::new(target);
-                                let label = target.label();
-                                ui.selectable_value(&mut choice, Some(target), label);
-                            }
+            if !enabled {
+                ui.disable();
+            }
+            let label = match &choice {
+                Some(target) => egui::RichText::new(target.label())
+                    .strong()
+                    .color(crate::app::style::accent()),
+                None => egui::RichText::new(READ_ONLY).color(crate::app::style::muted()),
+            };
+            egui::ComboBox::from_id_salt(("joined-target", self.workspace, self.tab))
+                .width(150.0)
+                .selected_text(label)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut choice, None, READ_ONLY);
+                    if let Some(reply) = &self.response {
+                        for target in &reply.targets {
+                            let target = Target::new(target);
+                            let label = target.label();
+                            ui.selectable_value(&mut choice, Some(target), label);
                         }
-                    });
-            });
+                    }
+                })
+                .response
+                .on_hover_text("选择要直接编辑的数据表；选「(只读)」时所有单元格锁定不可改");
         });
         (choice != self.selected).then_some(choice)
     }

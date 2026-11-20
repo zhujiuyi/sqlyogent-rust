@@ -328,7 +328,7 @@ pub(super) fn tools(ui: &mut egui::Ui, builder: &mut Builder) {
         RichText::new(format!("{:.0}%", builder.query.camera.zoom * 100.0))
             .monospace()
             .small()
-            .color(style::MUTED),
+            .color(style::muted()),
     )
     .on_hover_text("画布缩放比例");
     ui.menu_button("画布操作", |ui| {
@@ -416,7 +416,7 @@ fn catalog(
             ui.label(
                 RichText::new("连接数据库后可添加表。")
                     .small()
-                    .color(style::MUTED),
+                    .color(style::muted()),
             );
         }
         return None;
@@ -434,7 +434,7 @@ fn catalog(
         ui.label(
             RichText::new("没有匹配的表或视图。")
                 .small()
-                .color(style::MUTED),
+                .color(style::muted()),
         );
     }
     let row_height = ui.spacing().interact_size.y.max(22.0);
@@ -756,7 +756,7 @@ fn paint(
         painter.rect_stroke(
             viewport.shrink(1.0),
             8,
-            Stroke::new(2.0_f32, style::ACCENT),
+            Stroke::new(2.0_f32, style::accent()),
             StrokeKind::Inside,
         );
     }
@@ -773,7 +773,7 @@ fn paint(
             Align2::CENTER_CENTER,
             "将表或视图拖到这里",
             FontId::proportional(17.0),
-            style::MUTED,
+            style::muted(),
         );
         return;
     }
@@ -787,9 +787,9 @@ fn paint(
             .selected
             .is_some_and(|id| id == join.left || id == join.right);
         let stroke = if hovered || adjacent {
-            Stroke::new(if hovered { 2.6_f32 } else { 2.0_f32 }, style::ACCENT)
+            Stroke::new(if hovered { 2.6_f32 } else { 2.0_f32 }, style::accent())
         } else {
-            Stroke::new(1.6_f32, style::MUTED)
+            Stroke::new(1.6_f32, style::muted())
         };
         appearance::link(&painter, link.points, stroke);
         let [_, _, bend, end] = link.points;
@@ -847,9 +847,9 @@ fn paint(
             zoom,
             from.object.kind == ObjectKind::View,
             if selected {
-                style::ACCENT
+                style::accent()
             } else {
-                style::MUTED
+                style::muted()
             },
         );
         let title_bounds = Rect::from_min_max(
@@ -867,7 +867,7 @@ fn paint(
             title_bounds,
             &label,
             FontId::proportional((14.0 * zoom).max(5.0)),
-            style::INK,
+            style::ink(),
         );
         for (slot, column) in card.columns[card.first..card.first + card.shown]
             .iter()
@@ -888,12 +888,12 @@ fn paint(
                 content.rect(
                     tint,
                     4,
-                    style::ACCENT_SOFT,
-                    Stroke::new(1.0_f32, style::ACCENT),
+                    style::accent_soft(),
+                    Stroke::new(1.0_f32, style::accent()),
                     StrokeKind::Inside,
                 );
             } else if is_hovered {
-                content.rect_filled(tint, 4, style::PANEL);
+                content.rect_filled(tint, 4, style::panel());
             }
             let key = details.map_or_else(
                 || {
@@ -917,7 +917,7 @@ fn paint(
                     .map(|point| center + point * zoom);
                 content.add(egui::Shape::line(
                     check.to_vec(),
-                    Stroke::new((1.5 * zoom).max(0.65), style::ACCENT),
+                    Stroke::new((1.5 * zoom).max(0.65), style::accent()),
                 ));
             }
             appearance::text(
@@ -928,7 +928,7 @@ fn paint(
                 ),
                 column,
                 font.clone(),
-                style::INK,
+                style::ink(),
             );
         }
         if card.columns.is_empty() {
@@ -940,7 +940,7 @@ fn paint(
                 Align2::LEFT_CENTER,
                 "暂无列信息",
                 font.clone(),
-                style::MUTED,
+                style::muted(),
             );
         }
         appearance::row_scroll(
@@ -969,7 +969,7 @@ fn paint(
         };
         painter.line_segment(
             [pos2(x, card.anchor_y(&column.name, zoom)), point],
-            Stroke::new(2.3_f32, style::ACCENT),
+            Stroke::new(2.3_f32, style::accent()),
         );
     }
 }

@@ -43,22 +43,26 @@ pub(super) fn dialog(ctx: &egui::Context, state: &mut Option<Box<ErrorDetails>>)
         ui.horizontal(|ui| {
             ui.heading("数据库错误详情");
             if let Some(code) = detail.code {
-                ui.label(
-                    RichText::new(format!("ERROR {code}"))
-                        .monospace()
-                        .color(style::ERROR),
+                style::badge(
+                    ui,
+                    format!("ERROR {code}"),
+                    style::error(),
+                    style::error_soft(),
                 );
             }
         });
+        ui.add_space(4.0);
         ui.separator();
-        ui.label(RichText::new("服务器消息").strong().color(style::ERROR));
+        ui.add_space(4.0);
+        ui.label(RichText::new("服务器消息").strong().color(style::error()));
         detail_text(ui, "server-message", &detail.message, size.y * 0.21);
         if !detail.sql.is_empty() {
-            ui.strong("执行的 SQL");
+            ui.add_space(6.0);
+            ui.label(RichText::new("执行的 SQL").strong().color(style::ink()));
             detail_text(ui, "failed-statement", &detail.sql, size.y * 0.30);
         }
         if let Some(error) = &detail.save_error {
-            ui.colored_label(style::ERROR, error);
+            style::banner(ui, error, style::error(), style::error_soft());
         }
         ui.separator();
         ui.horizontal(|ui| {
@@ -96,7 +100,7 @@ fn detail_text(ui: &mut egui::Ui, id: &str, mut content: &str, height: f32) {
             ui.add(
                 TextEdit::multiline(&mut content)
                     .font(egui::TextStyle::Monospace)
-                    .background_color(style::PANEL)
+                    .background_color(style::panel())
                     .margin(egui::Margin::symmetric(8, 6))
                     .desired_width(f32::INFINITY)
                     .desired_rows(2),

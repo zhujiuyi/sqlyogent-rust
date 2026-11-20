@@ -523,87 +523,90 @@ impl Inspector {
         let available = ctx.content_rect().size();
         let mut outcome = Outcome::Continue;
         let modal = style::modal(ctx, egui::Id::new("cell-value")).show(ctx, |ui| {
-            ui.set_width((available.x - 60.0).clamp(320.0, 680.0));
-            ui.heading(if self.editable {
-                "编辑单元格内容"
-            } else {
-                "查看单元格内容"
+            ui.set_width((available.x - 60.0).clamp(360.0, 680.0));
+            ui.horizontal(|ui| {
+                ui.heading(if self.editable {
+                    "编辑单元格内容"
+                } else {
+                    "查看单元格内容"
+                });
+                ui.add_space(6.0);
+                style::badge(ui, &self.column, style::accent(), style::accent_soft());
             });
-            ui.add(
-                egui::Label::new(RichText::new(&self.column).monospace().color(style::MUTED))
-                    .truncate(),
-            )
-            .on_hover_text(&self.column);
-            ui.separator();
-            let (text_available, search_requested) = ui
-                .horizontal_wrapped(|ui| {
-                    if self.editable
-                        && self.nullable
-                        && ui.checkbox(&mut self.null, "设为 NULL").changed()
-                    {
-                        self.search.reset_feedback();
-                    }
-                    if !self.null && self.binary {
-                        for page in [Page::Text, Page::Hex, Page::Image] {
-                            let label = match page {
-                                Page::Text => "文本",
-                                Page::Hex => "十六进制",
-                                Page::Image => "图片",
-                            };
-                            let selected = self.page == page;
-                            let label = RichText::new(label).color(if selected {
-                                style::ACCENT
-                            } else {
-                                style::INK
-                            });
-                            if ui.selectable_label(selected, label).clicked() {
-                                self.switch_view(page, self.encoding);
+            ui.add_space(6.0);
+            let (text_available, search_requested) = style::subtle_card(egui::Margin::symmetric(10, 6))
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.horizontal_wrapped(|ui| {
+                        if self.editable
+                            && self.nullable
+                            && ui.checkbox(&mut self.null, "设为 NULL").changed()
+                        {
+                            self.search.reset_feedback();
+                        }
+                        if !self.null && self.binary {
+                            for page in [Page::Text, Page::Hex, Page::Image] {
+                                let label = match page {
+                                    Page::Text => "文本",
+                                    Page::Hex => "十六进制",
+                                    Page::Image => "图片",
+                                };
+                                let selected = self.page == page;
+                                let label = if selected {
+                                    RichText::new(label).strong().color(style::accent())
+                                } else {
+                                    RichText::new(label).color(style::muted())
+                                };
+                                if style::tab_button(ui, selected, label, true).clicked() {
+                                    self.switch_view(page, self.encoding);
+                                }
+                            }
+                            if self.page == Page::Text {
+                                ui.separator();
+                                ui.label(RichText::new("编码").small().color(style::muted()));
+                                let mut encoding = self.encoding;
+                                egui::ComboBox::from_id_salt("cell-value-encoding")
+                                    .width(96.0)
+                                    .selected_text(encoding_label(encoding))
+                                    .show_ui(ui, |ui| {
+                                        for candidate in [UTF_8, GBK, SHIFT_JIS] {
+                                            ui.selectable_value(
+                                                &mut encoding,
+                                                candidate,
+                                                encoding_label(candidate),
+                                            );
+                                        }
+                                    });
+                                self.switch_view(Page::Text, encoding);
                             }
                         }
-                        if self.page == Page::Text {
+                        let text_available = !self.null && self.text_available;
+                        if self.binary && text_available {
                             ui.separator();
-                            ui.label(RichText::new("编码").small().color(style::MUTED));
-                            let mut encoding = self.encoding;
-                            egui::ComboBox::from_id_salt("cell-value-encoding")
-                                .width(96.0)
-                                .selected_text(encoding_label(encoding))
-                                .show_ui(ui, |ui| {
-                                    for candidate in [UTF_8, GBK, SHIFT_JIS] {
-                                        ui.selectable_value(
-                                            &mut encoding,
-                                            candidate,
-                                            encoding_label(candidate),
-                                        );
-                                    }
-                                });
-                            self.switch_view(Page::Text, encoding);
                         }
-                    }
-                    let text_available = !self.null && self.text_available;
-                    if self.binary && text_available {
-                        ui.separator();
-                    }
-                    let find = text_available && ui.small_button("查找…").clicked();
-                    let replace = text_available
-                        && self.editable
-                        && !self.clipped
-                        && ui.small_button("替换…").clicked();
-                    let requested = if replace {
-                        Some(SearchPanel::Replace)
-                    } else {
-                        find.then_some(SearchPanel::Find)
-                    };
-                    (text_available, requested)
+                        let find = text_available && ui.small_button("查找…").clicked();
+                        let replace = text_available
+                            && self.editable
+                            && !self.clipped
+                            && ui.small_button("替换…").clicked();
+                        let requested = if replace {
+                            Some(SearchPanel::Replace)
+                        } else {
+                            find.then_some(SearchPanel::Find)
+                        };
+                        (text_available, requested)
+                    })
+                    .inner
                 })
                 .inner;
-            ui.separator();
+            ui.add_space(6.0);
             let height = (available.y * 0.50).clamp(120.0, 430.0);
             if self.null {
                 ui.label(
                     RichText::new("NULL")
                         .monospace()
                         .italics()
-                        .color(style::MUTED),
+                        .color(style::muted()),
                 );
             } else if self.page == Page::Image {
                 let preview = self.texture.get_or_insert_with(|| {
@@ -620,12 +623,12 @@ impl Inspector {
                         );
                     }
                     Err(error) => {
-                        ui.colored_label(style::WARNING, error.as_str());
+                        ui.colored_label(style::warning(), error.as_str());
                     }
                 }
             } else if self.page == Page::Text && !text_available {
                 ui.colored_label(
-                    style::WARNING,
+                    style::warning(),
                     format!("无法按 {} 解读为文本。", encoding_label(self.encoding)),
                 );
             } else {
@@ -661,7 +664,7 @@ impl Inspector {
                 let wrap = self.page != Page::Text || settings.word_wrap;
                 let font = settings.blob_font.id();
                 if self.clipped {
-                    ui.colored_label(style::WARNING, "仅预览前 64 KiB。可将完整内容保存到文件。");
+                    ui.colored_label(style::warning(), "仅预览前 64 KiB。可将完整内容保存到文件。");
                 }
                 egui::ScrollArea::new([!wrap, true])
                     .id_salt("cell-value-data")
@@ -673,7 +676,7 @@ impl Inspector {
                                     let job = egui::text::LayoutJob::simple(
                                         text.as_str().to_owned(),
                                         font.clone(),
-                                        style::INK,
+                                        style::ink(),
                                         if wrap { width } else { f32::INFINITY },
                                     );
                                     ui.fonts_mut(|fonts| fonts.layout_job(job))
@@ -681,7 +684,7 @@ impl Inspector {
                             TextEdit::multiline(buffer)
                                 .id(id)
                                 .font(font.clone())
-                                .background_color(style::PANEL)
+                                .background_color(style::panel())
                                 .margin(egui::Margin::symmetric(9, 7))
                                 .layouter(&mut layouter)
                                 .cursor_at_end(self.page != Page::Text)
@@ -712,9 +715,9 @@ impl Inspector {
                     });
             }
             if let Some(error) = &self.error {
-                ui.colored_label(style::ERROR, error);
+                ui.colored_label(style::error(), error);
             } else if let Some(notice) = self.notice {
-                ui.colored_label(style::SUCCESS, notice);
+                ui.colored_label(style::success(), notice);
             }
             ui.separator();
             ui.horizontal_wrapped(|ui| {

@@ -44,7 +44,7 @@ pub(super) fn fields(ui: &mut egui::Ui, path: &mut PathBuf) -> Result<bool, Stri
         ui.add(egui::Label::new(&label).truncate().selectable(true))
             .on_hover_text(label);
     } else {
-        ui.colored_label(style::MUTED, "未选择文件 DSN");
+        ui.colored_label(style::muted(), "未选择文件 DSN");
     }
     let mut draft: Option<Creation> = ui.data(|data| data.get_temp(id));
     if create {
@@ -75,7 +75,7 @@ pub(super) fn fields(ui: &mut egui::Ui, path: &mut PathBuf) -> Result<bool, Stri
                 });
         });
         ui.colored_label(
-            style::MUTED,
+            style::muted(),
             "填写驱动需要的连接属性，每行名称=值。用户名和密码由连接时提供。",
         );
         ui.add(

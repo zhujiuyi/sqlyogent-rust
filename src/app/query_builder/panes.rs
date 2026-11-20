@@ -58,12 +58,12 @@ impl PaneSizes {
         let center = rect.center();
         let active = response.hovered() || response.dragged();
         if active {
-            ui.painter().rect_filled(rect, 4, style::ACCENT_SOFT);
+            ui.painter().rect_filled(rect, 4, style::accent_soft());
         }
         ui.painter().rect_filled(
             Rect::from_center_size(center, vec2(28.0, 3.0)),
             2,
-            if active { style::ACCENT } else { style::MUTED },
+            if active { style::accent() } else { style::muted() },
         );
 
         let grab_id = response.id.with("grab-offset");

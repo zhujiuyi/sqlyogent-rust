@@ -106,97 +106,182 @@ impl SelectiveCopy {
         let mut close = false;
         let modal = crate::app::style::modal(ctx, egui::Id::new("copy-selected-table-fields"))
             .show(ctx, |ui| {
-                ui.set_min_width(460.0);
-                ui.heading("复制表");
-                ui.monospace(format!(
-                    "{}.{}",
-                    quote_identifier(&self.object.schema),
-                    quote_identifier(&self.object.name)
-                ));
+                let width = (ctx.content_rect().width() - 48.0).clamp(420.0, 640.0);
+                ui.set_width(width);
+                ui.horizontal(|ui| {
+                    ui.heading("复制表");
+                    ui.add_space(6.0);
+                    style::badge(
+                        ui,
+                        format!(
+                            "{}.{}",
+                            quote_identifier(&self.object.schema),
+                            quote_identifier(&self.object.name)
+                        ),
+                        style::accent(),
+                        style::accent_soft(),
+                    );
+                });
+                ui.add_space(8.0);
 
                 match self.phase {
                     TableCopyPhase::Copying => {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label("正在复制表…");
+                        style::subtle_card(egui::Margin::same(14)).show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label("正在复制表…");
+                            });
                         });
                     }
                     TableCopyPhase::Done => {
-                        ui.label(&self.status);
-                        close = ui.button("关闭").clicked();
+                        style::banner(ui, &self.status, style::success(), style::success_soft());
+                        style::dialog_footer(ui, |ui| {
+                            close = ui.add(style::primary("关闭")).clicked();
+                        });
                     }
                     TableCopyPhase::Configure => {
-                        ui.horizontal(|ui| {
-                            ui.label("目标数据库");
-                            ui.add(
-                                TextEdit::singleline(&mut self.settings.schema)
-                                    .desired_width(235.0),
-                            );
-                            egui::ComboBox::from_id_salt("selective-copy-schema")
-                                .selected_text("选择")
-                                .show_ui(ui, |ui| {
-                                    for schema in &workspace.schemas {
-                                        ui.selectable_value(
-                                            &mut self.settings.schema,
-                                            schema.clone(),
-                                            schema,
+                        let list_height = (ctx.content_rect().height() - 260.0).clamp(150.0, 260.0);
+                        let fields_panel = |ui: &mut egui::Ui, this: &mut Self, reload: &mut bool| {
+                            let selected_count = this.fields.as_ref().map(|fields| {
+                                if this.all_fields {
+                                    fields.len()
+                                } else {
+                                    fields.iter().filter(|(_, s)| *s).count()
+                                }
+                            });
+                            let total_count = this.fields.as_ref().map_or(0, Vec::len);
+                            style::section_card_with_header(
+                                ui,
+                                "复制字段",
+                                |ui| {
+                                    if let Some(count) = selected_count {
+                                        style::badge(
+                                            ui,
+                                            format!("{count}/{total_count}"),
+                                            style::accent(),
+                                            style::accent_soft(),
                                         );
                                     }
-                                });
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("新表名");
-                            ui.add(
-                                TextEdit::singleline(&mut self.settings.name)
-                                    .char_limit(64)
-                                    .desired_width(270.0),
-                            );
-                        });
-                        ui.horizontal_wrapped(|ui| {
-                            ui.radio_value(&mut self.settings.include_data, false, "仅结构");
-                            ui.radio_value(&mut self.settings.include_data, true, "结构和数据");
-                            ui.checkbox(&mut self.settings.include_indexes, "复制索引");
-                            let allows_triggers = self.settings.schema.trim() == self.object.schema;
-                            self.settings.include_triggers &= allows_triggers;
-                            ui.add_enabled(
-                                allows_triggers,
-                                egui::Checkbox::new(
-                                    &mut self.settings.include_triggers,
-                                    "复制触发器",
-                                ),
-                            )
-                            .on_disabled_hover_text("复制触发器需要在源数据库中创建新表。");
-                        });
-                        ui.separator();
-                        ui.checkbox(&mut self.all_fields, "包括全部字段");
-                        if let Some(fields) = &mut self.fields {
-                            egui::ScrollArea::vertical()
-                                .max_height(215.0)
-                                .show(ui, |ui| {
-                                    for (name, selected) in fields {
-                                        if self.all_fields {
-                                            let mut checked = true;
-                                            ui.add_enabled(
-                                                false,
-                                                egui::Checkbox::new(&mut checked, name.as_str()),
+                                },
+                                |ui| {
+                                    ui.checkbox(&mut this.all_fields, "包括全部字段");
+                                    ui.add_space(4.0);
+                                    if let Some(fields) = &mut this.fields {
+                                        egui::ScrollArea::vertical()
+                                            .auto_shrink([false, false])
+                                            .max_height(list_height)
+                                            .show(ui, |ui| {
+                                                for (name, selected) in fields {
+                                                    if this.all_fields {
+                                                        let mut checked = true;
+                                                        ui.add_enabled(
+                                                            false,
+                                                            egui::Checkbox::new(
+                                                                &mut checked,
+                                                                name.as_str(),
+                                                            ),
+                                                        );
+                                                    } else {
+                                                        ui.checkbox(selected, name.as_str());
+                                                    }
+                                                }
+                                            });
+                                    } else if workspace.busy() {
+                                        ui.horizontal(|ui| {
+                                            ui.spinner();
+                                            ui.label(
+                                                RichText::new("正在读取字段…")
+                                                    .color(style::muted()),
                                             );
+                                        });
+                                    } else {
+                                        ui.label(if this.status.is_empty() {
+                                            workspace.status.as_str()
                                         } else {
-                                            ui.checkbox(selected, name.as_str());
-                                        }
+                                            this.status.as_str()
+                                        });
+                                        *reload = ui.button("重新读取字段").clicked();
                                     }
+                                },
+                            );
+                        };
+                        let options_panel = |ui: &mut egui::Ui, this: &mut Self| {
+                            style::section_card(ui, "目标与选项", |ui| {
+                                ui.label(RichText::new("目标数据库").small().color(style::muted()));
+                                ui.horizontal(|ui| {
+                                    ui.add(
+                                        TextEdit::singleline(&mut this.settings.schema)
+                                            .desired_width((ui.available_width() - 88.0).max(110.0)),
+                                    );
+                                    egui::ComboBox::from_id_salt("selective-copy-schema")
+                                        .width(78.0)
+                                        .selected_text("选择")
+                                        .show_ui(ui, |ui| {
+                                            for schema in &workspace.schemas {
+                                                ui.selectable_value(
+                                                    &mut this.settings.schema,
+                                                    schema.clone(),
+                                                    schema,
+                                                );
+                                            }
+                                        });
                                 });
-                        } else if workspace.busy() {
-                            ui.spinner();
-                        } else {
-                            ui.label(if self.status.is_empty() {
-                                workspace.status.as_str()
-                            } else {
-                                self.status.as_str()
+                                ui.add_space(6.0);
+                                ui.label(RichText::new("新表名").small().color(style::muted()));
+                                ui.add(
+                                    TextEdit::singleline(&mut this.settings.name)
+                                        .char_limit(64)
+                                        .desired_width(f32::INFINITY),
+                                );
+                                ui.add_space(8.0);
+                                ui.separator();
+                                ui.add_space(6.0);
+                                ui.label(RichText::new("复制内容").small().color(style::muted()));
+                                ui.horizontal(|ui| {
+                                    ui.radio_value(
+                                        &mut this.settings.include_data,
+                                        false,
+                                        "仅结构",
+                                    );
+                                    ui.radio_value(
+                                        &mut this.settings.include_data,
+                                        true,
+                                        "结构和数据",
+                                    );
+                                });
+                                ui.add_space(4.0);
+                                ui.checkbox(&mut this.settings.include_indexes, "复制索引");
+                                let allows_triggers =
+                                    this.settings.schema.trim() == this.object.schema;
+                                this.settings.include_triggers &= allows_triggers;
+                                ui.add_enabled(
+                                    allows_triggers,
+                                    egui::Checkbox::new(
+                                        &mut this.settings.include_triggers,
+                                        "复制触发器",
+                                    ),
+                                )
+                                .on_disabled_hover_text("复制触发器需要在源数据库中创建新表。");
                             });
-                            reload = ui.button("重新读取字段").clicked();
+                        };
+                        if width >= 520.0 {
+                            style::split_two_columns_with(
+                                ui,
+                                0.50,
+                                12.0,
+                                self,
+                                |ui, this| fields_panel(ui, this, &mut reload),
+                                |ui, this| options_panel(ui, this),
+                            );
+                        } else {
+                            options_panel(ui, self);
+                            ui.add_space(8.0);
+                            fields_panel(ui, self, &mut reload);
                         }
                         if !self.status.is_empty() && self.fields.is_some() {
-                            ui.colored_label(style::ERROR, &self.status);
+                            ui.add_space(6.0);
+                            style::banner(ui, &self.status, style::error(), style::error_soft());
                         }
                         let schema = self.settings.schema.trim();
                         let name = self.settings.name.trim();
@@ -210,8 +295,10 @@ impl SelectiveCopy {
                             && (schema != self.object.schema || name != self.object.name)
                             && workspace.server.is_some()
                             && !workspace.busy();
-                        ui.horizontal(|ui| {
-                            start = ui.add_enabled(ready, style::primary("复制")).clicked();
+                        style::dialog_footer(ui, |ui| {
+                            start = ui
+                                .add_enabled(ready, style::primary_enabled(ready, "复制"))
+                                .clicked();
                             close = ui.button("取消").clicked();
                         });
                     }
@@ -674,98 +761,90 @@ impl Copy {
     }
 
     fn object_tree(&mut self, ui: &mut egui::Ui, source: &Workspace, height: f32) {
-        ui.strong("要复制的对象");
+        let selected_count = self.selected_objects(source).count();
         let mut retry = false;
-        style::pane(egui::Margin::same(6)).show(ui, |ui| {
-            match (
-                &self.catalog,
-                source.objects.get(&self.schema),
-                &mut self.checked,
-            ) {
-                (Catalog::Ready, Some(objects), _) if objects.is_empty() => {
-                    ui.label("源数据库没有可复制的对象。");
-                }
-                (Catalog::Ready, Some(objects), Some(selected)) => {
-                    egui::ScrollArea::vertical()
-                        .id_salt(("copy-objects", source.key, &self.schema))
-                        .max_height(height)
-                        .show(ui, |ui| {
-                            for kind in OBJECT_KINDS {
-                                let group: Vec<_> = objects
-                                    .iter()
-                                    .filter(|object| object.kind == kind)
-                                    .collect();
-                                let eligible = self.choices.include_structure
-                                    || (self.choices.include_data && kind == ObjectKind::Table);
-                                object_checkbox_group(
-                                    ui,
-                                    kind,
-                                    &group,
-                                    selected,
-                                    eligible,
-                                    kind == ObjectKind::Table,
-                                );
-                            }
+        style::section_card_with_header(
+            ui,
+            "要复制的对象",
+            |ui| {
+                style::badge(
+                    ui,
+                    format!("已选 {selected_count}"),
+                    style::accent(),
+                    style::accent_soft(),
+                );
+            },
+            |ui| {
+                match (
+                    &self.catalog,
+                    source.objects.get(&self.schema),
+                    &mut self.checked,
+                ) {
+                    (Catalog::Ready, Some(objects), _) if objects.is_empty() => {
+                        ui.label(
+                            RichText::new("源数据库没有可复制的对象。").color(style::muted()),
+                        );
+                    }
+                    (Catalog::Ready, Some(objects), Some(selected)) => {
+                        egui::ScrollArea::vertical()
+                            .id_salt(("copy-objects", source.key, &self.schema))
+                            .auto_shrink([false, false])
+                            .max_height(height)
+                            .show(ui, |ui| {
+                                for kind in OBJECT_KINDS {
+                                    let group: Vec<_> = objects
+                                        .iter()
+                                        .filter(|object| object.kind == kind)
+                                        .collect();
+                                    let eligible = self.choices.include_structure
+                                        || (self.choices.include_data && kind == ObjectKind::Table);
+                                    object_checkbox_group(
+                                        ui,
+                                        kind,
+                                        &group,
+                                        selected,
+                                        eligible,
+                                        kind == ObjectKind::Table,
+                                    );
+                                }
+                            });
+                    }
+                    (Catalog::Failed(error), _, _) => {
+                        style::banner(ui, error.as_str(), style::error(), style::error_soft());
+                        ui.add_space(6.0);
+                        retry = ui.button("重新读取对象").clicked();
+                    }
+                    _ if source.server.is_none() => {
+                        ui.label(RichText::new("请先连接源数据库。").color(style::muted()));
+                    }
+                    _ => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(
+                                RichText::new("正在读取源数据库对象…").color(style::muted()),
+                            );
                         });
+                    }
                 }
-                (Catalog::Failed(error), _, _) => {
-                    ui.colored_label(style::ERROR, error.as_str());
-                    retry = ui.button("重新读取对象").clicked();
-                }
-                _ if source.server.is_none() => {
-                    ui.label("请先连接源数据库。");
-                }
-                _ => {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.label("正在读取源数据库对象…");
-                    });
-                }
-            }
-        });
+            },
+        );
         if retry {
             self.catalog = Catalog::Waiting;
             ui.ctx().request_repaint();
         }
     }
 
-    fn configure(
-        &mut self,
-        ui: &mut egui::Ui,
-        workspaces: &[Workspace],
-        tree_height: f32,
-    ) -> Option<Action> {
-        ui.horizontal(|ui| {
-            ui.label("目标连接");
-            egui::ComboBox::from_id_salt("copy-destination")
-                .selected_text(&workspaces[self.destination].label)
-                .show_ui(ui, |ui| {
-                    for (index, workspace) in workspaces.iter().enumerate() {
-                        if workspace.server.is_some() {
-                            ui.selectable_value(&mut self.destination, index, &workspace.label);
-                        }
-                    }
-                });
-        });
-        ui.horizontal(|ui| {
-            ui.label("目标数据库");
-            ui.add(
-                TextEdit::singleline(&mut self.destination_schema)
-                    .hint_text("选择已有数据库或输入新库名"),
-            );
-            egui::ComboBox::from_id_salt("copy-schema")
-                .selected_text("选择")
-                .show_ui(ui, |ui| {
-                    for schema in &workspaces[self.destination].schemas {
-                        ui.selectable_value(&mut self.destination_schema, schema.clone(), schema);
-                    }
-                });
-        });
-        ui.horizontal_wrapped(|ui| {
+    fn options_panel(&mut self, ui: &mut egui::Ui, source: &Workspace) {
+        style::section_card(ui, "复制选项", |ui| {
+            ui.label(RichText::new("内容范围").small().color(style::muted()));
+            ui.add_space(2.0);
             ui.checkbox(&mut self.choices.include_structure, "复制对象结构");
             ui.checkbox(&mut self.choices.include_data, "复制表数据");
-        });
-        ui.horizontal_wrapped(|ui| {
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(6.0);
+            ui.label(RichText::new("写入方式与冲突处理").small().color(style::muted()));
+            ui.add_space(2.0);
             ui.add_enabled(
                 self.choices.include_data,
                 egui::Checkbox::new(&mut self.choices.bulk_insert, "批量插入数据"),
@@ -774,35 +853,117 @@ impl Copy {
                 self.choices.include_structure,
                 egui::Checkbox::new(&mut self.choices.drop_existing, "覆盖目标中的同名对象"),
             );
+            let destination_schema = self.destination_schema.trim();
+            let same_target = self.source == self.destination && self.schema == destination_schema;
+            if same_target && !destination_schema.is_empty() {
+                ui.add_space(8.0);
+                style::banner(
+                    ui,
+                    "目标数据库不能与源数据库完全相同，请选择其他目标库或输入新库名。",
+                    style::warning(),
+                    style::panel(),
+                );
+            } else if !destination_schema.is_empty()
+                && self.schema != destination_schema
+                && self.choices.include_structure
+            {
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new("目标库名与源库不同时，可确认的源库引用会改为指向目标库。")
+                        .small()
+                        .color(style::muted()),
+                );
+            }
+            if source
+                .server
+                .as_ref()
+                .is_some_and(|server| server.http_tunnel)
+            {
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new("HTTP 隧道按批读取。复制期间请保持源库数据和结构稳定。")
+                        .small()
+                        .color(style::muted()),
+                );
+            }
         });
+    }
+
+    fn configure(
+        &mut self,
+        ui: &mut egui::Ui,
+        workspaces: &[Workspace],
+        tree_height: f32,
+    ) -> Option<Action> {
+        style::section_card(ui, "目标位置", |ui| {
+            egui::Grid::new("copy-target-grid")
+                .num_columns(2)
+                .spacing([14.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(RichText::new("目标连接").color(style::muted()));
+                    egui::ComboBox::from_id_salt("copy-destination")
+                        .width((ui.available_width() - 8.0).clamp(180.0, 320.0))
+                        .selected_text(&workspaces[self.destination].label)
+                        .show_ui(ui, |ui| {
+                            for (index, workspace) in workspaces.iter().enumerate() {
+                                if workspace.server.is_some() {
+                                    ui.selectable_value(
+                                        &mut self.destination,
+                                        index,
+                                        &workspace.label,
+                                    );
+                                }
+                            }
+                        });
+                    ui.end_row();
+                    ui.label(RichText::new("目标数据库").color(style::muted()));
+                    ui.horizontal(|ui| {
+                        let input_w = (ui.available_width() - 102.0).max(160.0);
+                        ui.add(
+                            TextEdit::singleline(&mut self.destination_schema)
+                                .desired_width(input_w)
+                                .hint_text("选择已有数据库或输入新库名"),
+                        );
+                        egui::ComboBox::from_id_salt("copy-schema")
+                            .width(92.0)
+                            .selected_text("选择")
+                            .show_ui(ui, |ui| {
+                                for schema in &workspaces[self.destination].schemas {
+                                    ui.selectable_value(
+                                        &mut self.destination_schema,
+                                        schema.clone(),
+                                        schema,
+                                    );
+                                }
+                            });
+                    });
+                    ui.end_row();
+                });
+        });
+        ui.add_space(10.0);
         let source = &workspaces[self.source];
-        self.object_tree(ui, source, tree_height);
-        let destination_schema = self.destination_schema.trim();
-        if !destination_schema.is_empty()
-            && self.schema != destination_schema
-            && self.choices.include_structure
-        {
-            ui.label(
-                RichText::new("目标库名与源库不同时，可确认的源库引用会改为指向目标库。")
-                    .color(style::MUTED),
+        if ui.available_width() >= 520.0 {
+            style::split_two_columns_with(
+                ui,
+                0.55,
+                12.0,
+                self,
+                |ui, this| this.object_tree(ui, source, tree_height),
+                |ui, this| this.options_panel(ui, source),
             );
-        }
-        if source
-            .server
-            .as_ref()
-            .is_some_and(|server| server.http_tunnel)
-        {
-            ui.label(
-                RichText::new("HTTP 隧道按批读取。复制期间请保持源库数据和结构稳定。")
-                    .color(style::MUTED),
-            );
+        } else {
+            self.options_panel(ui, source);
+            ui.add_space(8.0);
+            self.object_tree(ui, source, tree_height);
         }
         if !self.error.is_empty() {
-            ui.colored_label(style::ERROR, &self.error);
+            ui.add_space(8.0);
+            style::banner(ui, &self.error, style::error(), style::error_soft());
         }
-        ui.horizontal(|ui| {
+        let ready = self.ready(workspaces);
+        style::dialog_footer(ui, |ui| {
             if ui
-                .add_enabled(self.ready(workspaces), style::primary("开始复制"))
+                .add_enabled(ready, style::primary_enabled(ready, "开始复制"))
                 .clicked()
             {
                 Some(Action::Start)
@@ -812,7 +973,6 @@ impl Copy {
                 None
             }
         })
-        .inner
     }
 
     fn confirm_replacement(
@@ -822,45 +982,66 @@ impl Copy {
         objects: &[DbObject],
         height: f32,
     ) -> Option<Action> {
-        ui.strong("确认覆盖目标对象");
         let target = &workspaces[self.destination];
         let label = target.profile.as_ref().map_or_else(
             || target.label.clone(),
             |profile| format!("{}（{}:{}）", target.label, profile.host, profile.port),
         );
-        ui.label(format!("目标连接 {label}"));
-        ui.label(format!(
-            "目标数据库 {}",
-            quote_identifier(self.destination_schema.trim())
-        ));
-        ui.label(format!(
-            "以下 {} 个对象如果在目标库中同名，将先删除再复制。目标表中原有的数据也会被删除。",
-            objects.len()
-        ));
-        if objects
-            .iter()
-            .any(|object| object.kind == ObjectKind::Table)
-        {
-            ui.label("覆盖表也会删除目标表的触发器。本次复制会带入勾选的源触发器。");
-        }
-        egui::ScrollArea::vertical()
-            .id_salt("replace-copy-objects")
-            .max_height(height)
-            .show_rows(
-                ui,
-                ui.spacing().interact_size.y,
-                objects.len(),
-                |ui, range| {
-                    for object in &objects[range] {
-                        let label = format!("{}  {}", kind_label(object.kind), object.name);
-                        ui.add(egui::Label::new(&label).truncate())
-                            .on_hover_text(label);
-                    }
-                },
-            );
-        ui.horizontal(|ui| {
+        style::banner(
+            ui,
+            &format!(
+                "以下 {} 个对象如果在目标库中同名，将先删除再复制。目标表中原有的数据也会被删除。",
+                objects.len()
+            ),
+            style::error(),
+            style::error_soft(),
+        );
+        ui.add_space(8.0);
+        style::section_card(ui, "确认覆盖目标对象", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("目标连接").small().color(style::muted()));
+                ui.label(RichText::new(label).strong());
+                ui.separator();
+                ui.label(RichText::new("目标数据库").small().color(style::muted()));
+                ui.label(
+                    RichText::new(quote_identifier(self.destination_schema.trim()))
+                        .monospace()
+                        .strong(),
+                );
+            });
+            if objects
+                .iter()
+                .any(|object| object.kind == ObjectKind::Table)
+            {
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new("覆盖表也会删除目标表的触发器。本次复制会带入勾选的源触发器。")
+                        .small()
+                        .color(style::muted()),
+                );
+            }
+            ui.add_space(6.0);
+            egui::ScrollArea::vertical()
+                .id_salt("replace-copy-objects")
+                .auto_shrink([false, false])
+                .max_height(height)
+                .show_rows(
+                    ui,
+                    ui.spacing().interact_size.y,
+                    objects.len(),
+                    |ui, range| {
+                        for object in &objects[range] {
+                            let label = format!("{}  {}", kind_label(object.kind), object.name);
+                            ui.add(egui::Label::new(&label).truncate())
+                                .on_hover_text(label);
+                        }
+                    },
+                );
+        });
+        let ready = self.ready(workspaces);
+        style::dialog_footer(ui, |ui| {
             if ui
-                .add_enabled(self.ready(workspaces), style::primary("覆盖并复制"))
+                .add_enabled(ready, style::danger("覆盖并复制"))
                 .clicked()
             {
                 Some(Action::Replace)
@@ -870,7 +1051,6 @@ impl Copy {
                 None
             }
         })
-        .inner
     }
 
     fn progress(&self, ui: &mut egui::Ui, workspaces: &[Workspace]) -> Option<Action> {
@@ -939,9 +1119,9 @@ pub(super) fn dialog(
         copy.poll_catalog(&mut workspaces[copy.source]);
     }
     let viewport = ctx.content_rect();
-    let tree_height = (viewport.height() - 320.0).clamp(115.0, 300.0);
+    let tree_height = (viewport.height() - 340.0).clamp(160.0, 320.0);
     let modal = crate::app::style::modal(ctx, egui::Id::new("copy-database-objects")).show(ctx, |ui| {
-        ui.set_width((viewport.width() - 48.0).clamp(380.0, 560.0));
+        ui.set_width((viewport.width() - 48.0).clamp(420.0, 700.0));
         ui.horizontal(|ui| {
             ui.heading("复制数据库对象");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -954,15 +1134,31 @@ pub(super) fn dialog(
         });
         let source = &workspaces[copy.source];
         let schema = quote_identifier(&copy.schema);
-        let user = source.profile.as_ref().filter(|profile| !profile.user.is_empty())
+        let user = source
+            .profile
+            .as_ref()
+            .filter(|profile| !profile.user.is_empty())
             .map_or_else(String::new, |profile| format!("（用户 {}）", profile.user));
-        ui.label(format!("来源  {} / {schema}{user}", source.label));
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
+            style::badge(ui, "来源", style::accent(), style::accent_soft());
+            ui.label(
+                RichText::new(format!("{} / {schema}{user}", source.label)).color(style::muted()),
+            );
+        });
+        ui.add_space(8.0);
         if copy.show_help {
-            ui.label("勾选对象后选择目标连接和数据库。仅复制数据时，目标表须已存在。覆盖同名对象前会再次确认。");
-            ui.separator();
+            style::banner(
+                ui,
+                "勾选对象后选择目标连接和数据库。仅复制数据时，目标表须已存在。覆盖同名对象前会再次确认。",
+                style::accent(),
+                style::accent_soft(),
+            );
+            ui.add_space(8.0);
         }
         if let Some(error) = &copy.preferences_error {
-            ui.colored_label(style::ERROR, error);
+            style::banner(ui, error, style::error(), style::error_soft());
+            ui.add_space(6.0);
         }
         match &copy.phase {
             Phase::Configure => {
@@ -973,10 +1169,20 @@ pub(super) fn dialog(
                 }
             }
             Phase::Done(summary) => {
-                ui.strong("复制概要");
-                ui.label(format!("已复制 {} 个对象，共 {} 行数据。", summary.objects, summary.rows));
-                ui.label(format!("传输 SQL {} 字节", summary.bytes));
-                ui.add(style::primary("完成")).clicked().then_some(Action::Close)
+                style::banner(
+                    ui,
+                    &format!(
+                        "复制完成：已复制 {} 个对象，共 {} 行数据（传输 SQL {} 字节）。",
+                        summary.objects, summary.rows, summary.bytes
+                    ),
+                    style::success(),
+                    style::success_soft(),
+                );
+                style::dialog_footer(ui, |ui| {
+                    ui.add(style::primary("完成"))
+                        .clicked()
+                        .then_some(Action::Close)
+                })
             }
             Phase::Dumping { .. } | Phase::Restoring { .. } => copy.progress(ui, workspaces),
         }

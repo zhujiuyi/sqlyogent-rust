@@ -37,21 +37,31 @@ impl Manager {
         let modal =
             crate::app::style::modal(ctx, egui::Id::new("account-manager")).show(ctx, |ui| {
                 let frame = ctx.content_rect();
-                ui.set_width((frame.width() - 64.0).clamp(480.0, 660.0));
-                ui.heading("用户与权限");
-                ui.colored_label(style::MUTED, &ws.label);
+                ui.set_width((frame.width() - 64.0).clamp(480.0, 720.0));
+                ui.horizontal(|ui| {
+                    ui.heading("用户与权限");
+                    ui.add_space(6.0);
+                    style::badge(ui, &ws.label, style::muted(), style::chrome());
+                });
+                ui.add_space(6.0);
                 ui.separator();
+                ui.add_space(4.0);
                 egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
                     .max_height((frame.height() * 0.62).clamp(170.0, 500.0))
                     .show(ui, |ui| {
                         if !self.notice.is_empty() {
-                            ui.label(&self.notice);
+                            style::banner(ui, &self.notice, style::success(), style::success_soft());
+                            ui.add_space(6.0);
                         }
                         if !self.error.is_empty() {
-                            ui.colored_label(style::ERROR, &self.error);
+                            style::banner(ui, &self.error, style::error(), style::error_soft());
+                            ui.add_space(6.0);
                         }
                         if !available {
-                            ui.label("请先连接数据库服务器。");
+                            ui.label(
+                                egui::RichText::new("请先连接数据库服务器。").color(style::muted()),
+                            );
                         } else if ws.busy() {
                             ui.horizontal(|ui| {
                                 ui.spinner();
@@ -65,9 +75,10 @@ impl Manager {
                             self.browse(ui, ws);
                         }
                     });
-                ui.separator();
-                ui.add_enabled(!self.pending, egui::Button::new("关闭"))
-                    .clicked()
+                style::dialog_footer(ui, |ui| {
+                    ui.add_enabled(!self.pending, egui::Button::new("关闭"))
+                        .clicked()
+                })
             });
         modal.inner || (!self.pending && modal.should_close())
     }
@@ -319,7 +330,7 @@ impl Manager {
             field(ui, "用户名", &mut form.target.user);
             field(ui, "账户主机", &mut form.target.host);
             if form.target.user.is_empty() && form.action != AccountAction::Read {
-                ui.colored_label(style::MUTED, "用户名为空表示匿名账户。");
+                ui.colored_label(style::muted(), "用户名为空表示匿名账户。");
             }
         }
         if form.action.uses_password() {
@@ -351,7 +362,7 @@ impl Manager {
         }
         let validation = form.validate(self.selected.as_ref());
         if let Err(error) = validation {
-            ui.colored_label(style::MUTED, error);
+            ui.colored_label(style::muted(), error);
         }
         let (submit, back) = ui
             .horizontal(|ui| {
@@ -413,12 +424,12 @@ impl Manager {
             return;
         }
         ui.colored_label(
-            style::MUTED,
+            style::muted(),
             "显示该范围的直接授权。上级范围和角色也可能提供访问权限。",
         );
         if snapshot.other_rules > 0 {
             ui.colored_label(
-                style::MUTED,
+                style::muted(),
                 format!(
                     "此账户还有 {} 条角色、代理或其它授权规则。",
                     snapshot.other_rules
@@ -444,7 +455,7 @@ impl Manager {
         });
         let changes = snapshot.statements(draft);
         if let Err(error) = &changes {
-            ui.colored_label(style::ERROR, *error);
+            ui.colored_label(style::error(), *error);
         }
         let (review, reload) = ui
             .horizontal(|ui| {

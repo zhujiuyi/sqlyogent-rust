@@ -378,7 +378,7 @@ impl Favorites {
         }
         ui.separator();
         if let Some(error) = &self.read_error {
-            ui.colored_label(style::ERROR, error);
+            ui.colored_label(style::error(), error);
         }
         let library = self.library.as_ref()?;
         let id = menu_entries(ui, library, None)?;
@@ -539,104 +539,137 @@ enum OperationResult {
 
 impl Favorites {
     fn add_form(&mut self, ui: &mut egui::Ui, form: &mut Add, height: f32) -> bool {
-        ui.set_width(540.0);
-        ui.heading("添加到收藏夹");
-        if let Some(error) = &self.read_error {
-            ui.colored_label(style::ERROR, error);
-        }
-        if ui.button("刷新收藏夹").clicked() {
-            self.load();
-            form.error = None;
-        }
-        ui.horizontal_wrapped(|ui| {
-            if form.selection.is_some() {
-                ui.radio_value(&mut form.source, AddSource::Selection, "选中的 SQL");
-            }
-            ui.add_enabled_ui(!form.sql.trim().is_empty(), |ui| {
-                ui.radio_value(&mut form.source, AddSource::Editor, "当前编辑器");
+        ui.set_width((ui.ctx().content_rect().width() - 48.0).clamp(400.0, 580.0));
+        ui.horizontal(|ui| {
+            ui.heading("添加到收藏夹");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("刷新收藏夹").clicked() {
+                    self.load();
+                    form.error = None;
+                }
             });
-            ui.radio_value(&mut form.source, AddSource::Link, "链接 SQL 文件");
         });
+        ui.add_space(6.0);
+        if let Some(error) = &self.read_error {
+            style::banner(ui, error, style::error(), style::error_soft());
+            ui.add_space(6.0);
+        }
+        style::section_card(ui, "收藏配置", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if form.selection.is_some() {
+                    ui.radio_value(&mut form.source, AddSource::Selection, "选中的 SQL");
+                }
+                ui.add_enabled_ui(!form.sql.trim().is_empty(), |ui| {
+                    ui.radio_value(&mut form.source, AddSource::Editor, "当前编辑器");
+                });
+                ui.radio_value(&mut form.source, AddSource::Link, "链接 SQL 文件");
+            });
 
-        if form.source == AddSource::Link {
-            ui.horizontal(|ui| {
-                if ui.button("选择文件…").clicked()
-                    && let Some(result) = pick_link()
-                {
-                    match result {
-                        Ok((path, sql)) => {
-                            if form.title.trim().is_empty()
-                                && let Some(stem) = path.file_stem()
-                            {
-                                form.title = stem.to_string_lossy().into_owned();
+            if form.source == AddSource::Link {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if ui.button("选择文件…").clicked()
+                        && let Some(result) = pick_link()
+                    {
+                        match result {
+                            Ok((path, sql)) => {
+                                if form.title.trim().is_empty()
+                                    && let Some(stem) = path.file_stem()
+                                {
+                                    form.title = stem.to_string_lossy().into_owned();
+                                }
+                                form.link = Some((path, sql));
+                                form.error = None;
                             }
-                            form.link = Some((path, sql));
+                            Err(error) => form.error = Some(error),
+                        }
+                    }
+                    if let Some((path, _)) = &form.link {
+                        ui.add(egui::Label::new(path.display().to_string()).truncate())
+                            .on_hover_text(path.display().to_string());
+                    }
+                });
+            }
+
+            ui.add_space(6.0);
+            egui::Grid::new("favorite-add-grid")
+                .num_columns(2)
+                .spacing([14.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new("名称").color(style::muted()));
+                    ui.add(
+                        TextEdit::singleline(&mut form.title)
+                            .desired_width((ui.available_width() - 8.0).max(200.0)),
+                    );
+                    ui.end_row();
+                    if let Some(library) = &self.library {
+                        ui.label(egui::RichText::new("位置").color(style::muted()));
+                        ui.horizontal(|ui| {
+                            folder_picker(
+                                ui,
+                                "favorite-add-location",
+                                library,
+                                &mut form.folder,
+                                None,
+                            );
+                            if ui
+                                .add_enabled(
+                                    self.read_error.is_none(),
+                                    egui::Button::new("新建文件夹…"),
+                                )
+                                .clicked()
+                            {
+                                form.folder_name = Some(String::new());
+                                form.error = None;
+                            }
+                        });
+                        ui.end_row();
+                    }
+                });
+            if let Some(name) = &mut form.folder_name {
+                ui.add_space(4.0);
+                let mut create = false;
+                let mut cancel = false;
+                ui.horizontal(|ui| {
+                    ui.add(TextEdit::singleline(name).hint_text("文件夹名"));
+                    create = ui.button("创建").clicked();
+                    cancel = ui.button("取消新建").clicked();
+                });
+                if create {
+                    match self.change(|library| library.add(form.folder, name, EntryKind::Folder))
+                    {
+                        Ok(id) => {
+                            form.folder = Some(id);
+                            form.folder_name = None;
                             form.error = None;
                         }
                         Err(error) => form.error = Some(error),
                     }
-                }
-                if let Some((path, _)) = &form.link {
-                    ui.add(egui::Label::new(path.display().to_string()).truncate())
-                        .on_hover_text(path.display().to_string());
-                }
-            });
-        }
-
-        ui.horizontal(|ui| {
-            ui.label("名称");
-            ui.add(TextEdit::singleline(&mut form.title).desired_width(280.0));
-        });
-        if let Some(library) = &self.library {
-            ui.horizontal(|ui| {
-                ui.label("位置");
-                folder_picker(ui, "favorite-add-location", library, &mut form.folder, None);
-                if ui
-                    .add_enabled(self.read_error.is_none(), egui::Button::new("新建文件夹…"))
-                    .clicked()
-                {
-                    form.folder_name = Some(String::new());
+                } else if cancel {
+                    form.folder_name = None;
                     form.error = None;
                 }
-            });
-        }
-        if let Some(name) = &mut form.folder_name {
-            let mut create = false;
-            let mut cancel = false;
-            ui.horizontal(|ui| {
-                ui.add(TextEdit::singleline(name).hint_text("文件夹名"));
-                create = ui.button("创建").clicked();
-                cancel = ui.button("取消新建").clicked();
-            });
-            if create {
-                match self.change(|library| library.add(form.folder, name, EntryKind::Folder)) {
-                    Ok(id) => {
-                        form.folder = Some(id);
-                        form.folder_name = None;
-                        form.error = None;
-                    }
-                    Err(error) => form.error = Some(error),
-                }
-            } else if cancel {
-                form.folder_name = None;
-                form.error = None;
             }
-        }
+        });
 
         if let Some(sql) = form.sql() {
+            ui.add_space(8.0);
             sql_preview(ui, "favorite-add-preview", sql, height);
         }
         if let Some(error) = &form.error {
-            ui.colored_label(style::ERROR, error);
+            ui.add_space(6.0);
+            style::banner(ui, error, style::error(), style::error_soft());
         }
 
         let mut save = false;
         let mut close = false;
-        ui.horizontal(|ui| {
+        let valid =
+            self.read_error.is_none() && self.library.is_some() && form.folder_name.is_none();
+        style::dialog_footer(ui, |ui| {
+            save = ui
+                .add_enabled(valid, style::primary_enabled(valid, "保存收藏"))
+                .clicked();
             close = ui.button("取消").clicked();
-            let valid =
-                self.read_error.is_none() && self.library.is_some() && form.folder_name.is_none();
-            save = ui.add_enabled(valid, style::primary("保存收藏")).clicked();
         });
         if save {
             let result = form.entry().and_then(|kind| {
@@ -671,10 +704,10 @@ impl Favorites {
             close = ui.button("关闭").clicked();
         });
         if let Some(error) = &self.read_error {
-            ui.colored_label(style::ERROR, error);
+            ui.colored_label(style::error(), error);
         }
         if let Some(error) = &manager.error {
-            ui.colored_label(style::ERROR, error);
+            ui.colored_label(style::error(), error);
         }
         let Some(library) = &self.library else {
             return (close, None);
@@ -756,7 +789,7 @@ impl Favorites {
                         match preview {
                             Ok(sql) => sql_preview(ui, "favorite-link-preview", sql, height),
                             Err(error) => {
-                                ui.colored_label(style::ERROR, error);
+                                ui.colored_label(style::error(), error);
                             }
                         }
                     }

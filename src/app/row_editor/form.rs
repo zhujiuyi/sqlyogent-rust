@@ -39,7 +39,7 @@ pub(super) fn show(
                         ui.add_sized(
                             [152.0, row_height],
                             egui::Label::new(
-                                RichText::new(page.column_label(index)).color(style::MUTED),
+                                RichText::new(page.column_label(index)).color(style::muted()),
                             )
                             .truncate(),
                         )
@@ -51,12 +51,12 @@ pub(super) fn show(
                         ui.horizontal(|ui| {
                             let text = RichText::new(display_cell(cell, true)).monospace();
                             let text = if index == current.column {
-                                text.strong().color(style::ACCENT)
+                                text.strong().color(style::accent())
                             } else {
                                 text
                             };
                             let text = if matches!(cell, Cell::Null) {
-                                text.color(style::MUTED).italics()
+                                text.color(style::muted()).italics()
                             } else {
                                 text
                             };
@@ -205,7 +205,7 @@ pub(super) fn navigation(
         ui.label(
             RichText::new(format!("第 {} 行", page.offset + current.row + 1))
                 .small()
-                .color(style::MUTED),
+                .color(style::muted()),
         );
     });
     action

@@ -1,6 +1,6 @@
-use eframe::egui::{self, Button, Grid, Modal, ScrollArea, Ui};
+use eframe::egui::{self, Align, Button, Grid, Layout, RichText, ScrollArea, Ui};
 
-use super::{preferences::Preferences, state};
+use super::{preferences::Preferences, state, style};
 
 #[derive(Clone, Copy)]
 pub(super) enum Page {
@@ -20,7 +20,7 @@ impl Page {
 }
 
 pub(super) fn menu(ui: &mut Ui, page: &mut Option<Page>) {
-    ui.menu_button("帮助", |ui| {
+    style::menu(ui, "帮助", |ui| {
         if ui
             .add(Button::new("使用帮助").shortcut_text("F1"))
             .clicked()
@@ -42,10 +42,12 @@ pub(super) fn dialog(ctx: &egui::Context, open: &mut Option<Page>, preferences: 
         return;
     };
     let mut next = Some(page);
-    let modal = Modal::new(egui::Id::new("help")).show(ctx, |ui| {
-        ui.set_width((ctx.content_rect().width() - 48.0).clamp(260.0, 560.0));
+    let modal = style::modal(ctx, egui::Id::new("help")).show(ctx, |ui| {
+        ui.set_width((ctx.content_rect().width() - 48.0).clamp(260.0, 580.0));
         ui.heading(page.title());
+        ui.add_space(4.0);
         ui.separator();
+        ui.add_space(4.0);
         ScrollArea::vertical()
             .id_salt(page.title())
             .auto_shrink([false, true])
@@ -53,6 +55,7 @@ pub(super) fn dialog(ctx: &egui::Context, open: &mut Option<Page>, preferences: 
             .show(ui, |ui| match page {
                 Page::Guide => {
                     guide(ui);
+                    ui.add_space(4.0);
                     if ui.button("查看快捷键").clicked() {
                         next = Some(Page::Shortcuts);
                     }
@@ -60,14 +63,18 @@ pub(super) fn dialog(ctx: &egui::Context, open: &mut Option<Page>, preferences: 
                 Page::Shortcuts => shortcuts(ui, preferences),
                 Page::About => about(ui),
             });
+        ui.add_space(6.0);
         ui.separator();
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
             if !matches!(page, Page::Guide) && ui.button("返回使用帮助").clicked() {
                 next = Some(Page::Guide);
             }
-            if ui.button("关闭").clicked() {
-                next = None;
-            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui.add(style::primary("关闭")).clicked() {
+                    next = None;
+                }
+            });
         });
     });
     *open = if modal.should_close() { None } else { next };
@@ -96,8 +103,12 @@ fn guide(ui: &mut Ui) {
             "通过「工具」菜单比较数据库、打开图形设计器、创建数据同步或计划备份。使用「作业管理」编辑、运行和安排作业。",
         ),
     ] {
-        ui.strong(title);
-        ui.label(instructions);
+        style::subtle_card(egui::Margin::same(12)).show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.label(RichText::new(title).strong().color(style::ink()));
+            ui.add_space(3.0);
+            ui.label(RichText::new(instructions).color(style::muted()));
+        });
         ui.add_space(7.0);
     }
 }
@@ -201,17 +212,22 @@ fn shortcut_group(
     group: &str,
     rows: impl IntoIterator<Item = (&'static str, String)>,
 ) {
-    ui.strong(group);
-    Grid::new(group)
-        .striped(true)
-        .min_col_width(190.0)
-        .show(ui, |ui| {
-            for (description, shortcut) in rows {
-                ui.label(description);
-                ui.monospace(shortcut);
-                ui.end_row();
-            }
-        });
+    style::card(egui::Margin::same(12)).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        ui.label(RichText::new(group).strong().color(style::accent()));
+        ui.add_space(6.0);
+        Grid::new(group)
+            .striped(true)
+            .min_col_width(200.0)
+            .spacing([16.0, 6.0])
+            .show(ui, |ui| {
+                for (description, shortcut) in rows {
+                    ui.label(description);
+                    style::keycap(ui, &shortcut);
+                    ui.end_row();
+                }
+            });
+    });
     ui.add_space(9.0);
 }
 
@@ -221,13 +237,33 @@ fn about(ui: &mut Ui) {
         ("macos", "aarch64") => "macOS · Apple 芯片".to_owned(),
         (os, arch) => format!("{os} · {arch}"),
     };
-    ui.label(format!("当前版本 {}", env!("CARGO_PKG_VERSION")));
-    ui.label(platform);
-    ui.label("用于管理 MySQL 和 MariaDB 的桌面客户端。");
-    if let Some(path) = state::profile_path()
-        && let Some(dir) = path.parent()
-    {
-        ui.strong("数据目录");
-        ui.add(egui::Label::new(dir.display().to_string()).selectable(true));
-    }
+    style::subtle_card(egui::Margin::same(14)).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        ui.horizontal(|ui| {
+            style::badge(
+                ui,
+                format!("v{}", env!("CARGO_PKG_VERSION")),
+                style::accent(),
+                style::accent_soft(),
+            );
+            style::badge(ui, platform, style::muted(), style::chrome());
+        });
+        ui.add_space(6.0);
+        ui.label(RichText::new("用于管理 MySQL 和 MariaDB 的原生桌面客户端。").color(style::ink()));
+        if let Some(path) = state::profile_path()
+            && let Some(dir) = path.parent()
+        {
+            ui.add_space(8.0);
+            ui.label(RichText::new("数据目录").small().strong().color(style::muted()));
+            ui.add(
+                egui::Label::new(
+                    RichText::new(dir.display().to_string())
+                        .small()
+                        .monospace()
+                        .color(style::ink()),
+                )
+                .selectable(true),
+            );
+        }
+    });
 }

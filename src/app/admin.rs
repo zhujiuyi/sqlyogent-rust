@@ -1,6 +1,6 @@
 mod accounts;
 
-use eframe::egui::{self, ComboBox, RichText, TextEdit};
+use eframe::egui::{self, ComboBox, TextEdit};
 
 use crate::database::{Command, ObjectKind};
 use crate::maintenance::{
@@ -362,18 +362,24 @@ pub(super) fn dialog(ctx: &egui::Context, state: &mut Option<Admin>, workspaces:
             .map_or("", |server| &server.version),
     );
     let response = crate::app::style::modal(ctx, egui::Id::new("administration")).show(ctx, |ui| {
-        ui.set_width(490.0);
-        ui.heading(if admin.flush_only {
-            "刷新服务器资源"
-        } else {
-            "服务器管理"
+        ui.set_width((ctx.content_rect().width() - 48.0).clamp(420.0, 560.0));
+        ui.horizontal(|ui| {
+            ui.heading(if admin.flush_only {
+                "刷新服务器资源"
+            } else {
+                "服务器管理"
+            });
+            ui.add_space(6.0);
+            style::badge(ui, &workspace.label, style::muted(), style::chrome());
         });
-        ui.label(RichText::new(&workspace.label).color(style::MUTED));
-        ui.separator();
-        egui::ScrollArea::vertical()
-            .max_height(365.0)
-            .show(ui, |ui| admin.fields(ui, flush_server));
-        ui.separator();
+        ui.add_space(8.0);
+        style::section_card(ui, "配置选项", |ui| {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .max_height(330.0)
+                .show(ui, |ui| admin.fields(ui, flush_server));
+        });
+        ui.add_space(8.0);
         let flush_plan = if admin.operation == Operation::Flush {
             FlushPlan::new(
                 flush_server,
@@ -387,41 +393,40 @@ pub(super) fn dialog(ctx: &egui::Context, state: &mut Option<Admin>, workspaces:
         let sql = admin.sql(flush_plan.as_ref());
         match &sql {
             Ok(sql) => {
-                let mut preview = sql.as_str();
-                ui.add(
-                    TextEdit::multiline(&mut preview)
-                        .font(egui::TextStyle::Monospace)
-                        .desired_width(472.0)
-                        .desired_rows(3),
-                );
+                style::section_card(ui, "SQL 预览", |ui| {
+                    let mut preview = sql.as_str();
+                    ui.add(
+                        TextEdit::multiline(&mut preview)
+                            .font(egui::TextStyle::Monospace)
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(3)
+                            .frame(false),
+                    );
+                });
             }
             Err(error) => {
-                ui.label(RichText::new(*error).color(style::MUTED));
+                style::banner(ui, error, style::muted(), style::panel());
             }
         }
-        let (open, execute, cancel) = ui
-            .horizontal(|ui| {
-                let execute = admin.operation == Operation::Flush
-                    && ui
-                        .add_enabled(
-                            flush_plan.is_some() && workspace.server.is_some() && !workspace.busy(),
-                            style::primary("执行刷新"),
-                        )
-                        .clicked();
-                let open = ui
-                    .add_enabled(
-                        sql.is_ok(),
-                        if admin.operation == Operation::Flush {
-                            egui::Button::new("在编辑器中打开")
-                        } else {
-                            style::primary("在编辑器中打开")
-                        },
-                    )
+        let (open, execute, cancel) = style::dialog_footer(ui, |ui| {
+            let can_exec = flush_plan.is_some() && workspace.server.is_some() && !workspace.busy();
+            let execute = admin.operation == Operation::Flush
+                && ui
+                    .add_enabled(can_exec, style::primary_enabled(can_exec, "执行刷新"))
                     .clicked();
-                let cancel = ui.button("取消").clicked();
-                (open, execute, cancel)
-            })
-            .inner;
+            let open = ui
+                .add_enabled(
+                    sql.is_ok(),
+                    if admin.operation == Operation::Flush {
+                        egui::Button::new("在编辑器中打开")
+                    } else {
+                        style::primary_enabled(sql.is_ok(), "在编辑器中打开")
+                    },
+                )
+                .clicked();
+            let cancel = ui.button("取消").clicked();
+            (open, execute, cancel)
+        });
         (
             if open { sql.ok() } else { None },
             if execute { flush_plan } else { None },

@@ -35,6 +35,8 @@ pub(super) struct Profile {
     pub host: String,
     pub port: u16,
     pub user: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub password: String,
     pub schema: String,
     pub tls: bool,
     pub ca: String,
@@ -46,6 +48,10 @@ pub(super) struct Profile {
     pub ssh_user: String,
     pub ssh_key: String,
     pub ssh_password_auth: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ssh_password: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ssh_key_passphrase: String,
     pub ssh_known_hosts: String,
     pub ssh_local_port: Option<u16>,
     pub http: Option<HttpProfile>,
@@ -88,8 +94,12 @@ pub(super) struct HttpProfile {
     pub force_base64: bool,
     pub utf8mb4: bool,
     pub web_user: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub web_password: String,
     pub proxy_url: String,
     pub proxy_user: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub proxy_password: String,
     pub timeout: Option<u32>,
 }
 
@@ -115,6 +125,7 @@ impl Default for Profile {
             host: "127.0.0.1".into(),
             port: 3306,
             user: "root".into(),
+            password: String::new(),
             schema: String::new(),
             tls: false,
             ca: String::new(),
@@ -126,6 +137,8 @@ impl Default for Profile {
             ssh_user: String::new(),
             ssh_key: String::new(),
             ssh_password_auth: false,
+            ssh_password: String::new(),
+            ssh_key_passphrase: String::new(),
             ssh_known_hosts: String::new(),
             ssh_local_port: None,
             http: None,
@@ -738,6 +751,7 @@ struct RowEditorScope {
 struct PendingF8 {
     workspace_index: usize,
     query: PendingEditableQuery,
+    default_read_only: bool,
 }
 
 struct PendingHistory {
@@ -834,6 +848,7 @@ pub(super) struct Workspace {
     pending_sync: bool,
     pending_schema_apply: bool,
     pending_local_file_import: bool,
+    pub pending_schema: Option<String>,
     origin: Option<u64>,
     batch: Option<Batch>,
     editor_query: Option<EditorQuery>,
@@ -922,6 +937,7 @@ impl Workspace {
             pending_sync: false,
             pending_schema_apply: false,
             pending_local_file_import: false,
+            pending_schema: None,
             origin: None,
             batch: None,
             editor_query: None,
@@ -1026,6 +1042,33 @@ impl Workspace {
 
     pub fn busy(&self) -> bool {
         self.pending.is_some()
+    }
+
+    pub fn active_database(&self) -> Option<&str> {
+        self.pending_schema
+            .as_deref()
+            .or_else(|| self.server.as_ref()?.database.as_deref())
+    }
+
+    pub fn request_schema_switch(&mut self, schema: String) {
+        if self.server.is_none() || schema.is_empty() {
+            return;
+        }
+        if self
+            .server
+            .as_ref()
+            .and_then(|server| server.database.as_deref())
+            == Some(schema.as_str())
+        {
+            self.pending_schema = None;
+            return;
+        }
+        if !self.busy() && self.batch.is_none() {
+            self.pending_schema = None;
+            self.send(Command::UseSchema { schema }, "正在切换默认数据库…");
+        } else {
+            self.pending_schema = Some(schema);
+        }
     }
 
     pub fn cancellable(&self) -> bool {
@@ -1621,6 +1664,16 @@ impl Workspace {
     }
 
     pub(super) fn start_f8(&mut self, index: usize, sql: String, limit: usize) -> bool {
+        self.start_f8_with_mode(index, sql, limit, false)
+    }
+
+    pub(super) fn start_f8_with_mode(
+        &mut self,
+        index: usize,
+        sql: String,
+        limit: usize,
+        default_read_only: bool,
+    ) -> bool {
         let query = PendingEditableQuery {
             workspace: self.key,
             tab: self.tab().id,
@@ -1634,6 +1687,7 @@ impl Workspace {
         self.pending_f8 = Some(PendingF8 {
             workspace_index: index,
             query,
+            default_read_only,
         });
         true
     }
@@ -1958,6 +2012,18 @@ impl Workspace {
                 finished_query = Some(tab);
             }
         }
+        if !self.busy()
+            && self.batch.is_none()
+            && self.server.is_some()
+            && let Some(schema) = self.pending_schema.take()
+            && self
+                .server
+                .as_ref()
+                .and_then(|server| server.database.as_deref())
+                != Some(schema.as_str())
+        {
+            self.send(Command::UseSchema { schema }, "正在切换默认数据库…");
+        }
         finished_query
     }
 
@@ -1965,11 +2031,12 @@ impl Workspace {
         let PendingF8 {
             workspace_index,
             query,
+            default_read_only,
         } = pending;
         let origin = query.tab;
         let (mut editor, messages, status) = match reply {
             Ok(Some(Response::EditablePage(page))) => {
-                let status = format!("已读取 {} 行可编辑查询结果", page.rows.len());
+                let status = format!("已读取 {} 行查询结果", page.rows.len());
                 let messages = BatchMessages::editable(
                     query.sql.clone(),
                     page.rows.len(),
@@ -1977,7 +2044,13 @@ impl Workspace {
                     page.query_timing,
                 );
                 (
-                    RowEditor::from_query(workspace_index, page, query.sql, query.limit),
+                    RowEditor::from_query_with_mode(
+                        workspace_index,
+                        page,
+                        query.sql,
+                        query.limit,
+                        default_read_only,
+                    ),
                     messages,
                     status,
                 )
@@ -1991,41 +2064,52 @@ impl Workspace {
                     page.query_timing,
                 );
                 (
-                    RowEditor::from_joined(workspace_index, page, query),
+                    RowEditor::from_joined_with_mode(
+                        workspace_index,
+                        page,
+                        query,
+                        default_read_only,
+                    ),
                     messages,
                     status,
                 )
             }
-            Ok(Some(Response::Queried(mut report))) => {
+            Ok(Some(Response::Queried(report))) => {
                 self.update_query_database(&report);
-                if let Some(error) = report.error.take() {
+                let error = report.error.clone();
+                let messages = BatchMessages::single(query.sql.clone(), &report);
+                self.publish(origin, report, true, Some(messages));
+                if let Some(error) = error {
                     if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == origin) {
                         tab.command_error = Some(ErrorDetails::new(&query.sql, &error));
                     }
-                    self.message(error, false);
                     return false;
-                }
-                let has_result_set = report.sets.iter().any(|set| !set.columns.is_empty());
-                let messages = BatchMessages::single(query.sql, &report);
-                self.publish(origin, report, false, Some(messages));
-                if !has_result_set {
-                    if self.tab().id == origin && self.output == Output::Results {
-                        self.output = Output::Messages;
-                    }
-                    if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == origin)
-                        && tab.last_output == Output::Results
-                    {
-                        tab.last_output = Output::Messages;
-                    }
                 }
                 return true;
             }
             Err(error) => {
-                self.message(error, false);
+                let report = QueryReport {
+                    error: Some(error.clone()),
+                    ..QueryReport::default()
+                };
+                let messages = BatchMessages::single(query.sql.clone(), &report);
+                self.publish(origin, report, true, Some(messages));
+                if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == origin) {
+                    tab.command_error = Some(ErrorDetails::new(&query.sql, &error));
+                }
                 return false;
             }
             Ok(_) => {
-                self.message("服务器未返回可编辑查询结果。", false);
+                let error = "服务器未返回可编辑查询结果。".to_owned();
+                let report = QueryReport {
+                    error: Some(error.clone()),
+                    ..QueryReport::default()
+                };
+                let messages = BatchMessages::single(query.sql.clone(), &report);
+                self.publish(origin, report, true, Some(messages));
+                if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == origin) {
+                    tab.command_error = Some(ErrorDetails::new(&query.sql, &error));
+                }
                 return false;
             }
         };
@@ -2045,11 +2129,15 @@ impl Workspace {
                 tab.profile = None;
                 tab.set = 0;
                 tab.result_views = Default::default();
+                tab.last_output = Output::Results;
                 *slot = Some(editor);
             })
             .is_some();
         if installed {
             self.status = status;
+            if self.tab().id == origin {
+                self.output = Output::Results;
+            }
         }
         installed
     }
@@ -2080,6 +2168,7 @@ impl Workspace {
         self.sync_endpoint = None;
         self.row_edit_affected_rows = None;
         self.row_edit_match_count = None;
+        self.pending_schema = None;
     }
 
     fn note_connection_loss(&mut self) {
@@ -2397,6 +2486,9 @@ impl Workspace {
                 self.row_edit_match_count = Some(matches);
             }
             Response::SchemaChanged(schema) => {
+                if self.pending_schema.as_deref() == Some(schema.as_str()) {
+                    self.pending_schema = None;
+                }
                 if let Some(server) = self.server.as_mut() {
                     server.database = Some(schema.clone());
                 }
@@ -2495,6 +2587,9 @@ impl Workspace {
         if let Some(schema) = report.active_database.as_ref()
             && let Some(server) = &mut self.server
         {
+            if self.pending_schema.as_deref() == Some(schema.as_str()) {
+                self.pending_schema = None;
+            }
             server.database = Some(schema.clone());
         }
     }

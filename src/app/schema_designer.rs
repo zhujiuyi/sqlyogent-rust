@@ -7,7 +7,7 @@ use std::{
 };
 
 use eframe::egui::{
-    self, Align2, Color32, FontId, Pos2, Rect, RichText, Stroke, StrokeKind, Vec2, pos2, vec2,
+    self, Align2, FontId, Pos2, Rect, RichText, Stroke, StrokeKind, Vec2, pos2, vec2,
 };
 use harbor_sql::APP_NAME;
 use rfd::FileDialog;
@@ -1044,7 +1044,7 @@ fn rule_dropdown(ui: &mut egui::Ui, label: &str, rule: &mut Rule) {
 fn sql_preview(ui: &mut egui::Ui, sql: &str) {
     ui.collapsing("预览 SQL", |ui| {
         egui::Frame::new()
-            .fill(style::PANEL)
+            .fill(style::panel())
             .corner_radius(6)
             .inner_margin(egui::Margin::same(4))
             .show(ui, |ui| {
@@ -1173,7 +1173,7 @@ impl Designer {
                     }
                 }
                 Err(error) => {
-                    ui.label(RichText::new(*error).color(style::MUTED));
+                    ui.label(RichText::new(*error).color(style::muted()));
                 }
             }
             ui.horizontal(|ui| {
@@ -1683,7 +1683,7 @@ impl Designer {
             painter.rect_stroke(
                 viewport.shrink(1.0),
                 8,
-                Stroke::new(2.0_f32, style::ACCENT),
+                Stroke::new(2.0_f32, style::accent()),
                 StrokeKind::Inside,
             );
         }
@@ -1693,14 +1693,14 @@ impl Designer {
                 Align2::CENTER_CENTER,
                 "添加表到画布",
                 FontId::proportional(17.0),
-                style::INK,
+                style::ink(),
             );
             painter.text(
                 viewport.center() + vec2(0.0, 14.0),
                 Align2::CENTER_CENTER,
                 "点选或拖入左侧条目",
                 FontId::proportional(12.0),
-                style::MUTED,
+                style::muted(),
             );
         }
         let hover_card = hover.and_then(|point| graph.card_at(point));
@@ -1722,10 +1722,10 @@ impl Designer {
                     } else {
                         2.0_f32
                     },
-                    style::ACCENT,
+                    style::accent(),
                 )
             } else {
-                Stroke::new(1.6_f32, style::MUTED)
+                Stroke::new(1.6_f32, style::muted())
             };
             appearance::link(&painter, cable.points, stroke);
             let tip = cable.points[3];
@@ -1738,7 +1738,7 @@ impl Designer {
                 painter.rect_filled(
                     Rect::from_center_size(position, Vec2::splat(font_size + 3.0)),
                     3,
-                    style::SURFACE,
+                    style::surface(),
                 );
                 painter.text(
                     position,
@@ -1771,7 +1771,7 @@ impl Designer {
             } else {
                 bounds.right()
             };
-            painter.line_segment([pos2(x, y), pointer], Stroke::new(2.0_f32, style::ACCENT));
+            painter.line_segment([pos2(x, y), pointer], Stroke::new(2.0_f32, style::accent()));
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         } else if let Some(pointer) = hover
             && let Some(index) = hover_card
@@ -1848,9 +1848,9 @@ impl Designer {
             scale,
             false,
             if selected {
-                style::ACCENT
+                style::accent()
             } else {
-                style::MUTED
+                style::muted()
             },
         );
         appearance::text(
@@ -1861,13 +1861,13 @@ impl Designer {
             ),
             &card.name,
             FontId::proportional((14.0 * scale).max(1.0)),
-            style::INK,
+            style::ink(),
         );
         if differs {
             painter.circle_filled(
                 pos2(title.right() - 10.0 * scale, title.center().y),
                 3.2 * scale,
-                style::WARNING,
+                style::warning(),
             );
         }
         if exists {
@@ -1898,12 +1898,12 @@ impl Designer {
                         painter.rect(
                             tint,
                             4,
-                            style::ACCENT_SOFT,
-                            Stroke::new(1.0_f32, style::ACCENT),
+                            style::accent_soft(),
+                            Stroke::new(1.0_f32, style::accent()),
                             StrokeKind::Inside,
                         );
                     } else {
-                        painter.rect_filled(tint, 4, style::PANEL);
+                        painter.rect_filled(tint, 4, style::panel());
                     }
                 }
                 if let Some(key) = appearance::KeyMarker::from_column(&column.key) {
@@ -1914,7 +1914,7 @@ impl Designer {
                     Rect::from_min_max(pos2(column_x, row.top()), pos2(name_right, row.bottom())),
                     &column.name,
                     name_font.clone(),
-                    style::INK,
+                    style::ink(),
                 );
                 if !card.names_only {
                     appearance::text(
@@ -1922,7 +1922,7 @@ impl Designer {
                         Rect::from_min_max(pos2(type_x, row.top()), pos2(right, row.bottom())),
                         &column.data_type,
                         type_font.clone(),
-                        style::MUTED,
+                        style::muted(),
                     );
                 }
             }
@@ -1949,7 +1949,7 @@ impl Designer {
                     "等待连接和表元数据"
                 },
                 FontId::proportional((12.0 * scale).max(1.0)),
-                style::MUTED,
+                style::muted(),
             );
         }
         appearance::resize_grip(&painter, bounds, scale);
@@ -2019,7 +2019,7 @@ fn field_label(column: &ColumnInfo) -> String {
 
 fn draw_page_lines(painter: &egui::Painter, viewport: Rect, origin: Pos2, scale: f32) {
     let stride = vec2(PAGE_WIDTH, PAGE_HEIGHT) * scale;
-    let guide = Stroke::new(1.0_f32, Color32::from_rgb(167, 181, 188));
+    let guide = Stroke::new(1.0_f32, style::border_strong());
     let mut x = origin.x + ((viewport.left() - origin.x) / stride.x).ceil() * stride.x;
     while x < viewport.right() {
         painter.line_segment([pos2(x, viewport.top()), pos2(x, viewport.bottom())], guide);
@@ -2378,8 +2378,8 @@ impl Designer {
         }
         let status = |ui: &mut egui::Ui, status: &Result<String, String>| {
             let (color, message) = match status {
-                Ok(message) => (style::SUCCESS, message),
-                Err(message) => (style::ERROR, message),
+                Ok(message) => (style::success(), message),
+                Err(message) => (style::error(), message),
             };
             ui.add(egui::Label::new(RichText::new(message).color(color)).truncate())
                 .on_hover_text(message);
@@ -2430,7 +2430,7 @@ impl Designer {
                                         ui.add(
                                             egui::Label::new(
                                                 RichText::new(format!("{name}{suffix}"))
-                                                    .color(style::MUTED),
+                                                    .color(style::muted()),
                                             )
                                             .truncate(),
                                         )
@@ -2564,7 +2564,7 @@ impl Designer {
                         ui.set_min_width(ui.available_width());
                         if pending_close {
                             ui.horizontal_wrapped(|ui| {
-                                ui.colored_label(style::WARNING, "架构布局有未保存的修改。");
+                                ui.colored_label(style::warning(), "架构布局有未保存的修改。");
                                 if ui
                                     .add_enabled(can_save, style::primary("保存并关闭"))
                                     .clicked()
@@ -2646,20 +2646,20 @@ impl Designer {
                                 if differing {
                                     ui.label(
                                         RichText::new("布局中的建表语句与当前数据库不同。")
-                                            .color(style::WARNING),
+                                            .color(style::warning()),
                                     );
                                 }
                             });
                         } else if !connected {
-                            ui.colored_label(style::MUTED, "连接数据库后可读取表和关系。");
+                            ui.colored_label(style::muted(), "连接数据库后可读取表和关系。");
                         } else if !ws.schemas.contains(&self.layout.schema) {
-                            ui.colored_label(style::MUTED, "请选择当前连接中的数据库。");
+                            ui.colored_label(style::muted(), "请选择当前连接中的数据库。");
                         } else {
                             ui.label(
                                 RichText::new(
                                     "从表清单拖入表，拖动字段建立外键，双击连线编辑外键。",
                                 )
-                                .color(style::MUTED),
+                                .color(style::muted()),
                             );
                         }
                     });

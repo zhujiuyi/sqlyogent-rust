@@ -84,15 +84,22 @@ impl Dialog {
         let response =
             crate::app::style::modal(ctx, egui::Id::new("server-processes")).show(ctx, |ui| {
                 ui.set_width((size.x - 64.0).clamp(420.0, 960.0));
-                ui.heading("进程列表");
-                ui.colored_label(style::MUTED, &ws.label);
+                ui.horizontal(|ui| {
+                    ui.heading("进程列表");
+                    ui.add_space(6.0);
+                    style::badge(ui, &ws.label, style::muted(), style::chrome());
+                });
                 if !self.notice.is_empty() {
-                    ui.label(&self.notice);
+                    ui.add_space(4.0);
+                    style::banner(ui, &self.notice, style::success(), style::success_soft());
                 }
                 if !self.error.is_empty() {
-                    ui.colored_label(style::ERROR, &self.error);
+                    ui.add_space(4.0);
+                    style::banner(ui, &self.error, style::error(), style::error_soft());
                 }
+                ui.add_space(6.0);
                 ui.separator();
+                ui.add_space(4.0);
                 if ws.server.is_none() {
                     ui.label("连接已断开。");
                 } else if self.pending {
@@ -152,7 +159,7 @@ impl Dialog {
                                     }
                                 }
                                 if Some(row.id) == overview.own_id {
-                                    ui.colored_label(style::MUTED, "当前工作区的连接");
+                                    ui.colored_label(style::muted(), "当前工作区的连接");
                                 }
                             });
                         }
@@ -160,7 +167,9 @@ impl Dialog {
                 } else if ws.busy() {
                     ui.label("等待当前连接任务完成…");
                 }
+                ui.add_space(8.0);
                 ui.separator();
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     if ui
                         .add_enabled(!ws.busy() && ws.server.is_some(), egui::Button::new("刷新"))
@@ -169,7 +178,10 @@ impl Dialog {
                         self.notice.clear();
                         self.refresh(ws);
                     }
-                    ui.button("关闭").clicked()
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.button("关闭").clicked()
+                    })
+                    .inner
                 })
                 .inner
             });
@@ -272,7 +284,7 @@ fn show_sql(ui: &mut egui::Ui, sql: Option<&str>) {
                 );
             });
     } else {
-        ui.colored_label(style::MUTED, "此进程没有可显示的 SQL。");
+        ui.colored_label(style::muted(), "此进程没有可显示的 SQL。");
     }
 }
 

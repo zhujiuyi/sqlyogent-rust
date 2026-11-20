@@ -6,7 +6,7 @@ use super::{
     style,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub(super) enum Document {
     Query(u64),
     Design(u64),

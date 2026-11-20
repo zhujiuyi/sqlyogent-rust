@@ -122,7 +122,7 @@ impl Importer {
                         }
                     });
                 if let Some(error) = &self.error {
-                    ui.colored_label(style::ERROR, error);
+                    ui.colored_label(style::error(), error);
                 }
                 ui.separator();
                 ui.horizontal_wrapped(|ui| {
@@ -274,10 +274,10 @@ impl Importer {
                 });
                 (*create, *reset) = mode;
                 if !*use_legacy_table_strategies && *reset == OdbcReset::Truncate {
-                    ui.colored_label(style::ERROR, "运行新作业时，目标表的现有数据将被清空。");
+                    ui.colored_label(style::error(), "运行新作业时，目标表的现有数据将被清空。");
                 }
                 if !*use_legacy_table_strategies && *reset == OdbcReset::Recreate {
-                    ui.colored_label(style::ERROR, "运行新作业时，原目标表的结构和数据将被替换。");
+                    ui.colored_label(style::error(), "运行新作业时，原目标表的结构和数据将被替换。");
                 }
                 password(ui, "目标库密码变量名", target_password_env);
                 odbc_source(
@@ -337,7 +337,7 @@ impl Importer {
                     ui.checkbox(preserve_source_actions, "保留原作业的源表更新或删除");
                     if *preserve_source_actions {
                         ui.colored_label(
-                            style::ERROR,
+                            style::error(),
                             "运行新作业时，目标写入确认后会更改源记录。",
                         );
                     }

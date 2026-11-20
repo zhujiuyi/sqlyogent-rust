@@ -99,12 +99,12 @@ impl Designer {
         }
         for cable in &graph.links {
             for points in cable.points.windows(2) {
-                canvas.line(points[0], points[1], style::MUTED);
+                canvas.line(points[0], points[1], style::muted());
             }
             let tip = cable.points[3];
             let direction = if cable.points[2].x < tip.x { -1.0 } else { 1.0 };
             for dy in [-4.0, 4.0] {
-                canvas.line(tip, tip + vec2(direction * 7.0, dy), style::MUTED);
+                canvas.line(tip, tip + vec2(direction * 7.0, dy), style::muted());
             }
             for (position, label) in cable.labels(1.0) {
                 canvas.text(
@@ -112,7 +112,7 @@ impl Designer {
                     position - vec2(5.0, 0.0),
                     14.0,
                     label.into(),
-                    style::MUTED,
+                    style::muted(),
                     viewport,
                 );
             }
@@ -134,7 +134,7 @@ impl Designer {
                 pos2(bounds.left() + 9.0, header.center().y),
                 14.0,
                 card.name.clone(),
-                style::INK,
+                style::ink(),
                 header,
             );
 
@@ -154,7 +154,7 @@ impl Designer {
                     pos2(bounds.left() + 8.0, y),
                     14.0,
                     field_label(field),
-                    style::INK,
+                    style::ink(),
                     name_clip,
                 );
                 if !card.names_only {
@@ -163,7 +163,7 @@ impl Designer {
                         pos2(type_x, y),
                         14.0,
                         field.data_type.clone(),
-                        style::MUTED,
+                        style::muted(),
                         inner,
                     );
                 }
@@ -174,7 +174,7 @@ impl Designer {
                     pos2(bounds.left() + 8.0, bounds.bottom() - 7.0),
                     10.0,
                     "…".into(),
-                    style::MUTED,
+                    style::muted(),
                     inner,
                 );
             }
@@ -466,7 +466,7 @@ mod tests {
             let gap = graph.links[0].points;
             assert_eq!(
                 sample(&bitmap, (gap[0].x + gap[1].x) * 0.5, gap[0].y),
-                color(style::MUTED)
+                color(style::muted())
             );
             assert_eq!(sample(&bitmap, 0.0, guide_y), color(PAGE_LINE));
 
@@ -497,7 +497,7 @@ mod tests {
                 })));
                 assert_eq!(
                     sample_page(if index == 0 { -8.0 } else { 8.0 }, gap[0].y),
-                    color(style::MUTED)
+                    color(style::muted())
                 );
                 assert_eq!(
                     sample_page(page.left(), page.top() + 5.0),

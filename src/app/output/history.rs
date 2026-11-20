@@ -335,7 +335,7 @@ pub(super) fn panel(
                     "确认删除"
                 };
                 let apply = ui
-                    .button(RichText::new(label).color(style::ERROR))
+                    .button(RichText::new(label).color(style::error()))
                     .clicked();
                 let cancel = ui.button("取消").clicked();
                 (apply, cancel)
@@ -351,7 +351,7 @@ pub(super) fn panel(
     }
 
     if history.entries.is_empty() {
-        ui.label(RichText::new("暂无执行记录").color(style::MUTED));
+        ui.label(RichText::new("暂无执行记录").color(style::muted()));
         return;
     }
 
@@ -381,6 +381,9 @@ pub(super) fn panel(
             .unwrap_or(0)
     });
     ui.add_enabled_ui(history.removal.is_none(), |ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(5.0, 4.0);
+        ui.spacing_mut().button_padding = egui::vec2(7.0, 2.5);
+        ui.spacing_mut().interact_size.y = 22.0;
         ui.horizontal_wrapped(|ui| {
             if ui
                 .add_enabled(history.has_selected_sql(), Button::new("复制选中"))
@@ -452,7 +455,7 @@ pub(super) fn panel(
                                 if let Some(completion) = completion {
                                     ui.add(
                                         egui::Label::new(
-                                            RichText::new(completion.label()).color(style::MUTED),
+                                            RichText::new(completion.label()).color(style::muted()),
                                         )
                                         .truncate(),
                                     );
@@ -470,7 +473,7 @@ pub(super) fn panel(
                             }
                             Content::Note { time, text } => ui.add(
                                 egui::Label::new(
-                                    RichText::new(note_label(*time, text)).color(style::MUTED),
+                                    RichText::new(note_label(*time, text)).color(style::muted()),
                                 )
                                 .selectable(false)
                                 .sense(egui::Sense::click())

@@ -67,10 +67,10 @@ pub(super) fn show(
         .max_scroll_height(body_height)
         .header(header_height, |mut header| {
             header.col(|ui| {
-                grid::grid_label(ui, RichText::new("字段").strong().color(style::INK), false);
+                grid::grid_label(ui, RichText::new("字段").strong().color(style::ink()), false);
             });
             header.col(|ui| {
-                grid::grid_label(ui, RichText::new("值").strong().color(style::INK), false);
+                grid::grid_label(ui, RichText::new("值").strong().color(style::ink()), false);
             });
         })
         .body(|body| {
@@ -78,7 +78,7 @@ pub(super) fn show(
                 let column = row.index();
                 let name = &set.columns[column];
                 let (_, field) = row.col(|ui| {
-                    grid::grid_label(ui, RichText::new(name).color(style::MUTED), false);
+                    grid::grid_label(ui, RichText::new(name).color(style::muted()), false);
                 });
                 field.on_hover_text(name);
                 let cell = set.rows[source].get(column).unwrap_or(&Cell::Null);
@@ -118,7 +118,7 @@ pub(super) fn show(
         ui.label(
             RichText::new(format!("第 {} 行，共 {} 行", position + 1, visible.len()))
                 .small()
-                .color(style::MUTED),
+                .color(style::muted()),
         );
         let copy = ui.button("复制本行");
         if request_focus {

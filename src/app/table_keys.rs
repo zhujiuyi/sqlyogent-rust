@@ -206,16 +206,30 @@ pub(super) fn dialog(
     let mut stage = None;
     let screen = ctx.content_rect();
     crate::app::style::modal(ctx, egui::Id::new("table-key-manager")).show(ctx, |ui| {
-        ui.set_min_width((screen.width() - 72.0).clamp(550.0, 920.0));
-        ui.heading(if manager.kind == Kind::Index {
-            "管理索引"
-        } else {
-            "管理外键"
+        ui.set_width((screen.width() - 72.0).clamp(550.0, 920.0));
+        ui.horizontal(|ui| {
+            ui.heading(if manager.kind == Kind::Index {
+                "管理索引"
+            } else {
+                "管理外键"
+            });
+            ui.add_space(6.0);
+            style::badge(
+                ui,
+                format!("{}.{}", manager.object.schema, manager.object.name),
+                style::accent(),
+                style::accent_soft(),
+            );
         });
-        ui.label(format!("{}.{}", manager.object.schema, manager.object.name));
-        ui.separator();
+        ui.add_space(8.0);
         if ws.busy() {
-            ui.spinner();
+            style::subtle_card(egui::Margin::same(14)).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("正在读取键信息…");
+                });
+            });
         } else if let Some(keys) = ws
             .table_keys
             .as_ref()
@@ -223,43 +237,62 @@ pub(super) fn dialog(
         {
             egui::ScrollArea::vertical()
                 .id_salt("key-manager-body")
-                .max_height((screen.height() - 165.0).max(220.0))
+                .auto_shrink([false, false])
+                .max_height((screen.height() - 180.0).max(220.0))
                 .show(ui, |ui| {
-                    show_objects(ui, manager, keys);
+                    style::section_card(
+                        ui,
+                        if manager.kind == Kind::Index {
+                            "已有索引"
+                        } else {
+                            "已有外键"
+                        },
+                        |ui| show_objects(ui, manager, keys),
+                    );
                     if let Some(draft) = &mut manager.draft {
-                        ui.separator();
-                        match draft {
-                            Draft::Index(draft) => show_index(ui, draft, keys),
-                            Draft::Foreign(draft) => show_foreign(ui, draft, keys, &ws.schemas),
-                            Draft::Delete(name) => {
-                                ui.label(format!("待删除：{name}"));
-                            }
-                        }
-                        match script(manager.kind, draft, keys) {
-                            Ok(sql) => {
-                                ui.collapsing("预览 SQL", |ui| {
-                                    let mut preview = sql.as_str();
-                                    ui.add(
-                                        TextEdit::multiline(&mut preview)
-                                            .code_editor()
-                                            .desired_width(f32::INFINITY),
+                        ui.add_space(10.0);
+                        style::section_card(ui, "编辑方案", |ui| {
+                            match draft {
+                                Draft::Index(draft) => show_index(ui, draft, keys),
+                                Draft::Foreign(draft) => {
+                                    show_foreign(ui, draft, keys, &ws.schemas)
+                                }
+                                Draft::Delete(name) => {
+                                    style::banner(
+                                        ui,
+                                        &format!("待删除：{name}"),
+                                        style::error(),
+                                        style::error_soft(),
                                     );
-                                });
-                                if ui.add(style::primary("在编辑器中打开 SQL")).clicked() {
-                                    stage = Some(sql);
                                 }
                             }
-                            Err(error) => {
-                                ui.label(RichText::new(error).color(style::MUTED));
+                            ui.add_space(6.0);
+                            match script(manager.kind, draft, keys) {
+                                Ok(sql) => {
+                                    ui.collapsing("预览 SQL", |ui| {
+                                        let mut preview = sql.as_str();
+                                        ui.add(
+                                            TextEdit::multiline(&mut preview)
+                                                .code_editor()
+                                                .desired_width(f32::INFINITY),
+                                        );
+                                    });
+                                    ui.add_space(4.0);
+                                    if ui.add(style::primary("在编辑器中打开 SQL")).clicked() {
+                                        stage = Some(sql);
+                                    }
+                                }
+                                Err(error) => {
+                                    ui.label(RichText::new(error).color(style::muted()));
+                                }
                             }
-                        }
+                        });
                     }
                 });
         } else {
-            ui.colored_label(style::ERROR, &ws.status);
+            style::banner(ui, &ws.status, style::error(), style::error_soft());
         }
-        ui.separator();
-        exit = ui.button("关闭").clicked();
+        exit = style::dialog_footer(ui, |ui| ui.button("关闭").clicked());
     });
     if let Some(sql) = stage {
         ws.new_tab(sql, None);

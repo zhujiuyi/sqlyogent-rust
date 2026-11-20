@@ -873,7 +873,7 @@ fn settings_form(
         ui.label("HTTP 隧道分批读取，每批使用独立连接。");
         if options.lock_source_server {
             ui.colored_label(
-                style::ERROR,
+                style::error(),
                 "请关闭全局读锁，或将连接方式改为直连或 SSH 隧道。",
             );
         }

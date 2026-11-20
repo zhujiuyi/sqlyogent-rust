@@ -1147,19 +1147,22 @@ impl Worker {
                     Ok(request) => request,
                     Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     Err(mpsc::RecvTimeoutError::Timeout) => {
-                        if let Some(Connection::Native(connection)) = session.as_mut()
-                            && let Err(error) = connection.conn.ping()
-                        {
-                            session = None;
-                            if responses
-                                .send(Event {
-                                    id: 0,
-                                    connected: false,
-                                    result: Err(format!("连接保活失败：{}", mysql_error(error))),
-                                })
-                                .is_err()
+                        if let Some(Connection::Native(connection)) = session.as_mut() {
+                            if connection.conn.ping().is_ok() {
+                                connection.last_activity = Instant::now();
+                            } else if let Err(error) = reconnect_native(connection, &worker_lifetime)
                             {
-                                break;
+                                session = None;
+                                if responses
+                                    .send(Event {
+                                        id: 0,
+                                        connected: false,
+                                        result: Err(format!("连接保活失败且自动重连失败：{error}")),
+                                    })
+                                    .is_err()
+                                {
+                                    break;
+                                }
                             }
                         }
                         continue;
@@ -1448,8 +1451,24 @@ struct Session {
     query_identity: Option<QueryConnectionIdentity>,
     identity: Arc<()>,
     keep_alive: Option<Duration>,
+    current_db: Option<String>,
+    last_activity: Instant,
     system_roots: Option<Arc<tempfile::TempPath>>,
     _tunnel: Option<SshTunnel>,
+}
+
+const DEFAULT_KEEP_ALIVE_SECS: u64 = 30;
+
+fn reconnect_native(session: &mut Session, lifetime: &SharedLifetime) -> Result<(), String> {
+    let mut config = session.config.clone();
+    if let Some(db) = session.current_db.clone() {
+        config.database = Some(db);
+    }
+    let keep_alive = session.keep_alive;
+    let (mut fresh, _) = connect(config, lifetime, false)?;
+    fresh.keep_alive = keep_alive;
+    *session = fresh;
+    Ok(())
 }
 
 enum Connection {
@@ -1559,6 +1578,17 @@ fn handle_command(
     }
 
     let active = session.as_mut().ok_or("请先连接数据库服务器。")?;
+    if let Connection::Native(native) = active
+        && native.last_activity.elapsed() >= Duration::from_secs(15)
+        && native.conn.ping().is_err()
+        && let Err(error) = reconnect_native(native, lifetime)
+    {
+        *session = None;
+        return Err(format!("数据库连接已中断且自动重连失败：{error}"));
+    }
+    if let Connection::Native(native) = active {
+        native.last_activity = Instant::now();
+    }
     if sync_dispatch::is_sync(&command) {
         return sync_dispatch::handle(active, command, operation_monitor);
     }
@@ -1700,6 +1730,11 @@ fn handle_command(
                 run_editor_query(active, id, &sql, limit, cancellation, None);
             if disconnected {
                 *session = None;
+            } else {
+                if let Some(db) = &report.active_database {
+                    active.current_db = Some(db.clone());
+                }
+                active.last_activity = Instant::now();
             }
             Ok(Response::Queried(report))
         }
@@ -1733,6 +1768,11 @@ fn handle_command(
                 profiler::run(active, id, sql, limit, options, cancellation);
             if disconnected {
                 *session = None;
+            } else {
+                if let Some(db) = &report.active_database {
+                    active.current_db = Some(db.clone());
+                }
+                active.last_activity = Instant::now();
             }
             Ok(Response::Profiled {
                 report,
@@ -1801,6 +1841,11 @@ fn handle_command(
             }
             if disconnected {
                 *session = None;
+            } else {
+                if let Some(db) = &report.active_database {
+                    active.current_db = Some(db.clone());
+                }
+                active.last_activity = Instant::now();
             }
             Ok(Response::Queried(report))
         }
@@ -2038,6 +2083,10 @@ fn handle_command(
         }
         command => {
             let result = metadata_command(&mut active.conn, command);
+            if let Ok(Response::SchemaChanged(schema)) = &result {
+                active.current_db = Some(schema.clone());
+            }
+            active.last_activity = Instant::now();
             if result.as_ref().is_err_and(|error| error.lost_connection()) {
                 *session = None;
             }
@@ -2172,10 +2221,14 @@ fn connect(
     };
     let session = Session {
         conn,
-        keep_alive: config
-            .advanced
-            .keep_alive
-            .map(|seconds| Duration::from_secs(seconds as u64)),
+        keep_alive: Some(Duration::from_secs(
+            config
+                .advanced
+                .keep_alive
+                .map_or(DEFAULT_KEEP_ALIVE_SECS, u64::from),
+        )),
+        current_db: info.database.clone(),
+        last_activity: Instant::now(),
         config,
         mariadb: info.version.to_ascii_lowercase().contains("mariadb"),
         opts,

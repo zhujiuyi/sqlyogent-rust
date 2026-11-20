@@ -108,7 +108,7 @@ impl Form {
         let response = style::modal(ctx, egui::Id::new("schema-html")).show(ctx, |ui| {
             ui.set_width(form_width(ctx, 500.0));
             ui.heading("导出数据库结构说明（HTML）");
-            ui.add(egui::Label::new(egui::RichText::new(&self.schema).color(style::MUTED)).truncate())
+            ui.add(egui::Label::new(egui::RichText::new(&self.schema).color(style::muted())).truncate())
                 .on_hover_text(&self.schema);
             let connected = workspace.server.is_some();
             form_scroll(ctx, 145.0).show(ui, |ui| {
@@ -119,7 +119,7 @@ impl Form {
                             .on_hover_text("包含数据表、视图和其他数据库对象。");
                     });
                     if !connected {
-                        ui.colored_label(style::ERROR, "连接已断开。");
+                        ui.colored_label(style::error(), "连接已断开。");
                     } else if self.scope == Scope::Tables {
                         self.poll_tables(workspace);
                         let mut retry = false;
@@ -131,14 +131,14 @@ impl Form {
                                 });
                             }
                             Catalog::Ready(tables) if tables.is_empty() => {
-                                ui.colored_label(style::MUTED, "此数据库没有可选的数据表。");
+                                ui.colored_label(style::muted(), "此数据库没有可选的数据表。");
                             }
                             Catalog::Ready(tables) => {
                                 let height = (ctx.content_rect().height() * 0.38).clamp(110.0, 300.0);
                                 table_list(ui, tables, height);
                             }
                             Catalog::Failed(error) => {
-                                ui.colored_label(style::ERROR, error.as_str());
+                                ui.colored_label(style::error(), error.as_str());
                                 retry = ui.button("重新读取数据表").clicked();
                             }
                         }
@@ -150,7 +150,7 @@ impl Form {
                 });
             });
             if let Some(error) = &self.error {
-                ui.add(egui::Label::new(egui::RichText::new(error).color(style::ERROR)).truncate())
+                ui.add(egui::Label::new(egui::RichText::new(error).color(style::error())).truncate())
                     .on_hover_text(error);
             }
             ui.separator();
@@ -193,7 +193,7 @@ fn table_list(ui: &mut egui::Ui, tables: &mut [Table], max_height: f32) {
         }
         let selected = tables.iter().filter(|table| table.checked).count();
         ui.colored_label(
-            style::MUTED,
+            style::muted(),
             format!("已选 {selected} / {} 张表", tables.len()),
         );
     });

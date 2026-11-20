@@ -594,7 +594,7 @@ impl Completion {
                             );
                             let text = RichText::new(label).monospace();
                             ui.label(if index == call.argument {
-                                text.strong().color(style::ACCENT)
+                                text.strong().color(style::accent())
                             } else {
                                 text
                             });
@@ -710,15 +710,30 @@ fn show_candidates(
         let mut clicked = None;
         for number in rows {
             let candidate = &candidates[number];
+            let selected = number == session.selected;
             let label = format!("{}  {}", candidate.name, candidate.kind.label());
+            let mut job = egui::text::LayoutJob::default();
+            job.append(
+                &candidate.name,
+                0.0,
+                egui::TextFormat::simple(
+                    egui::FontId::monospace(13.0),
+                    if selected {
+                        style::accent()
+                    } else {
+                        style::ink()
+                    },
+                ),
+            );
+            job.append(
+                &format!("  {}", candidate.kind.label()),
+                0.0,
+                egui::TextFormat::simple(egui::FontId::proportional(11.5), style::muted()),
+            );
             let response = ui
                 .add_sized(
                     [ui.available_width(), height],
-                    egui::Button::selectable(
-                        number == session.selected,
-                        RichText::new(&label).monospace(),
-                    )
-                    .truncate(),
+                    egui::Button::selectable(selected, job).truncate(),
                 )
                 .on_hover_text(label);
             if response.clicked() {

@@ -127,81 +127,219 @@ impl Schedule {
         let mut close = false;
         let mut remove = None;
         crate::app::style::modal(ctx, egui::Id::new("backup-schedule")).show(ctx, |ui| {
-            ui.set_min_width(515.0);
+            let width = (ctx.content_rect().width() - 48.0).clamp(400.0, 680.0);
+            ui.set_width(width);
             ui.heading("连接内间隔备份");
-            ui.label(RichText::new("备份在应用打开并保持连接时运行。").color(style::MUTED));
-            egui::ScrollArea::vertical()
-                .max_height(190.0)
-                .show(ui, |ui| {
-                    for job in &self.jobs {
-                        let name = target_label(&job.schema, job.object.as_ref());
-                        let workspace = workspaces.iter().find(|ws| ws.key == job.workspace);
-                        let suffix = if job.running {
-                            "正在备份".to_owned()
-                        } else if workspace.is_some_and(|ws| ws.server.is_some()) {
-                            format!(
-                                "约 {} 分钟后",
-                                job.due
-                                    .saturating_duration_since(Instant::now())
-                                    .as_secs()
-                                    .div_ceil(60)
-                            )
+            ui.label(
+                RichText::new("备份在应用打开并保持连接时按设定间隔自动运行。")
+                    .small()
+                    .color(style::muted()),
+            );
+            ui.add_space(10.0);
+            let jobs_panel = |ui: &mut egui::Ui, remove: &mut Option<usize>| {
+                style::section_card_with_header(
+                    ui,
+                    "当前计划",
+                    |ui| {
+                        style::badge(
+                            ui,
+                            format!("{} 项", self.jobs.len()),
+                            style::accent(),
+                            style::accent_soft(),
+                        );
+                    },
+                    |ui| {
+                        if self.jobs.is_empty() {
+                            ui.label(
+                                RichText::new("暂未添加连接内定时备份任务。")
+                                    .small()
+                                    .color(style::muted()),
+                            );
                         } else {
-                            "等待连接".into()
-                        };
-                        ui.horizontal(|ui| {
-                            ui.strong(name);
-                            ui.label(format!(
-                                "每 {} 分钟 · {suffix}",
-                                job.interval.as_secs() / 60
-                            ));
-                            if ui
-                                .add_enabled(!job.running, egui::Button::new("移除"))
-                                .clicked()
+                            egui::ScrollArea::vertical()
+                                .auto_shrink([false, false])
+                                .max_height(210.0)
+                                .show(ui, |ui| {
+                                    for job in &self.jobs {
+                                        let name = target_label(&job.schema, job.object.as_ref());
+                                        let workspace =
+                                            workspaces.iter().find(|ws| ws.key == job.workspace);
+                                        let suffix = if job.running {
+                                            "正在备份".to_owned()
+                                        } else if workspace.is_some_and(|ws| ws.server.is_some()) {
+                                            format!(
+                                                "约 {} 分钟后",
+                                                job.due
+                                                    .saturating_duration_since(Instant::now())
+                                                    .as_secs()
+                                                    .div_ceil(60)
+                                            )
+                                        } else {
+                                            "等待连接".into()
+                                        };
+                                        style::subtle_card(egui::Margin::symmetric(10, 7)).show(
+                                            ui,
+                                            |ui| {
+                                                ui.set_min_width(ui.available_width());
+                                                ui.horizontal(|ui| {
+                                                    ui.label(
+                                                        RichText::new(name)
+                                                            .strong()
+                                                            .color(style::ink()),
+                                                    );
+                                                    ui.with_layout(
+                                                        egui::Layout::right_to_left(
+                                                            egui::Align::Center,
+                                                        ),
+                                                        |ui| {
+                                                            if ui
+                                                                .add_enabled(
+                                                                    !job.running,
+                                                                    egui::Button::new("移除"),
+                                                                )
+                                                                .clicked()
+                                                            {
+                                                                *remove = Some(job.id);
+                                                            }
+                                                        },
+                                                    );
+                                                });
+                                                ui.label(
+                                                    RichText::new(format!(
+                                                        "每 {} 分钟 · {suffix}",
+                                                        job.interval.as_secs() / 60
+                                                    ))
+                                                    .small()
+                                                    .color(style::muted()),
+                                                );
+                                                if !job.last.is_empty() {
+                                                    ui.add(
+                                                        egui::Label::new(
+                                                            RichText::new(&job.last)
+                                                                .small()
+                                                                .color(style::muted()),
+                                                        )
+                                                        .truncate(),
+                                                    );
+                                                }
+                                            },
+                                        );
+                                        ui.add_space(5.0);
+                                    }
+                                });
+                        }
+                    },
+                );
+            };
+            if form.workspace != 0 && width >= 540.0 {
+                style::split_two_columns(
+                    ui,
+                    0.48,
+                    12.0,
+                    |ui| jobs_panel(ui, &mut remove),
+                    |ui| {
+                        style::section_card(ui, "新增备份计划", |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("目标").small().color(style::muted()));
+                                style::badge(
+                                    ui,
+                                    target_label(&form.schema, form.object.as_ref()),
+                                    style::accent(),
+                                    style::accent_soft(),
+                                );
+                            });
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                ui.label("每");
+                                ui.add(
+                                    egui::DragValue::new(&mut form.interval).range(1..=10_080),
+                                );
+                                ui.label("分钟备份一次");
+                            });
+                            ui.checkbox(&mut form.first_now, "立即备份一次");
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                if ui.button("选择保存目录…").clicked()
+                                    && let Some(folder) = rfd::FileDialog::new()
+                                        .set_title("选择备份文件保存目录")
+                                        .pick_folder()
+                                {
+                                    form.folder = Some(folder);
+                                }
+                            });
+                            if let Some(folder) = &form.folder {
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(folder.display().to_string())
+                                            .small()
+                                            .monospace()
+                                            .color(style::ink()),
+                                    )
+                                    .truncate(),
+                                )
+                                .on_hover_text(folder.display().to_string());
+                            } else {
+                                ui.label(
+                                    RichText::new("尚未选择保存目录")
+                                        .small()
+                                        .color(style::muted()),
+                                );
+                            }
+                            ui.add_space(6.0);
+                            ui.label(
+                                RichText::new("按常规偏好中的 SQL 转储设置生成备份。")
+                                    .small()
+                                    .color(style::muted()),
+                            );
+                            if workspaces
+                                .iter()
+                                .find(|workspace| workspace.key == form.workspace)
+                                .and_then(|workspace| workspace.server.as_ref())
+                                .is_some_and(|server| !server.http_tunnel)
                             {
-                                remove = Some(job.id);
+                                ui.label(
+                                    RichText::new(
+                                        "InnoDB 使用同一快照。备份期间请保持非事务表数据稳定。",
+                                    )
+                                    .small()
+                                    .color(style::muted()),
+                                );
                             }
                         });
-                        if !job.last.is_empty() {
-                            ui.add(egui::Label::new(&job.last).truncate());
-                        }
-                    }
-                });
-            if form.workspace != 0 {
-                ui.separator();
-                ui.label(target_label(&form.schema, form.object.as_ref()));
-                ui.small("按常规偏好中的 SQL 转储设置生成备份。");
-                if workspaces
-                    .iter()
-                    .find(|workspace| workspace.key == form.workspace)
-                    .and_then(|workspace| workspace.server.as_ref())
-                    .is_some_and(|server| !server.http_tunnel)
-                {
-                    ui.small("InnoDB 使用同一快照。备份期间请保持非事务表数据稳定。");
-                }
-                ui.horizontal(|ui| {
-                    ui.label("每");
-                    ui.add(egui::DragValue::new(&mut form.interval).range(1..=10_080));
-                    ui.label("分钟备份一次");
-                    ui.checkbox(&mut form.first_now, "立即备份一次");
-                });
-                ui.horizontal(|ui| {
-                    if ui.button("选择保存目录…").clicked()
-                        && let Some(folder) = rfd::FileDialog::new()
-                            .set_title("选择备份文件保存目录")
-                            .pick_folder()
-                    {
-                        form.folder = Some(folder);
-                    }
-                    if let Some(folder) = &form.folder {
-                        ui.add(egui::Label::new(folder.display().to_string()).truncate());
-                    }
-                });
-            }
-            ui.horizontal(|ui| {
+                    },
+                );
+            } else {
+                jobs_panel(ui, &mut remove);
                 if form.workspace != 0 {
+                    ui.add_space(8.0);
+                    style::section_card(ui, "新增备份计划", |ui| {
+                        ui.label(target_label(&form.schema, form.object.as_ref()));
+                        ui.horizontal(|ui| {
+                            ui.label("每");
+                            ui.add(egui::DragValue::new(&mut form.interval).range(1..=10_080));
+                            ui.label("分钟备份一次");
+                            ui.checkbox(&mut form.first_now, "立即备份一次");
+                        });
+                        ui.horizontal(|ui| {
+                            if ui.button("选择保存目录…").clicked()
+                                && let Some(folder) = rfd::FileDialog::new()
+                                    .set_title("选择备份文件保存目录")
+                                    .pick_folder()
+                            {
+                                form.folder = Some(folder);
+                            }
+                            if let Some(folder) = &form.folder {
+                                ui.add(egui::Label::new(folder.display().to_string()).truncate());
+                            }
+                        });
+                    });
+                }
+            }
+            style::dialog_footer(ui, |ui| {
+                if form.workspace != 0 {
+                    let ready = form.folder.is_some();
                     create = ui
-                        .add_enabled(form.folder.is_some(), style::primary("添加计划"))
+                        .add_enabled(ready, style::primary_enabled(ready, "添加计划"))
                         .clicked();
                 }
                 close = ui.button("关闭").clicked();

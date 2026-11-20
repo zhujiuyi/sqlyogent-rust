@@ -19,10 +19,10 @@ use super::{
     editor_tools::cursors,
     io_jobs::export::Options as ExportOptions,
     output::{
-        GRID_HEADER_HEIGHT, GRID_ROW_GAP, GRID_ROW_HEIGHT, JoinedGridAction, ResultGrid,
-        ResultMode as DataView, TextRows, data_info_line, data_info_line_height, display_cell,
-        grid_cell, grid_label, paint_cell_outline, paint_grid_header, query_time_label,
-        result_view_controls,
+        GRID_HEADER_HEIGHT, GRID_ROW_GAP, GRID_ROW_HEIGHT, InlineJoinedCell, InlineKey,
+        JoinedGridAction, ResultGrid, ResultMode as DataView, TextRows, data_info_line,
+        data_info_line_height, display_cell, grid_cell_styled, grid_label, paint_cell_outline,
+        paint_grid_header, query_time_label, render_inline_cell_editor, result_view_controls,
         selection::{GridSelection, Hit, Point, PointerInteraction, Selection, Shortcut},
         values::{ClipboardFormat, cell_text, clipboard_table},
     },
@@ -124,10 +124,26 @@ enum QueuedMove {
 
 enum GridAction {
     Open(Point),
+    OpenJoined(Point, Point),
     BeginDraft {
         row: Option<usize>,
         column: usize,
         text: Option<String>,
+    },
+    BeginJoinedDraft {
+        row: Option<usize>,
+        column: usize,
+        text: Option<String>,
+        joined_point: Point,
+    },
+    InlineCommit,
+    InlineCancel,
+    InlineSwitchCell {
+        column: usize,
+        joined_point: Option<Point>,
+    },
+    InlineStepColumn {
+        forward: bool,
     },
     Focus(Point),
     Duplicate(usize),
@@ -151,6 +167,7 @@ pub(super) struct RowEditor {
     index: usize,
     object: Option<DbObject>,
     query: Option<(String, usize)>,
+    query_read_only: bool,
     joined: Option<joined::Joined>,
     duplicate_only: bool,
     offset: usize,
@@ -195,6 +212,7 @@ impl RowEditor {
             index,
             object,
             query: None,
+            query_read_only: false,
             joined: None,
             duplicate_only: false,
             offset: 0,
@@ -383,21 +401,43 @@ impl RowEditor {
         })
     }
 
+    #[cfg(test)]
     pub(super) fn from_query(index: usize, page: TablePage, sql: String, limit: usize) -> Self {
+        Self::from_query_with_mode(index, page, sql, limit, false)
+    }
+
+    pub(super) fn from_query_with_mode(
+        index: usize,
+        page: TablePage,
+        sql: String,
+        limit: usize,
+        read_only: bool,
+    ) -> Self {
         let mut editor = Self::new(index, page.object.clone());
         editor.grid.id = egui::Id::new(("editable-query-grid", &sql));
         editor.query = Some((sql, limit));
+        editor.query_read_only = read_only;
         editor.page = Some(page);
         editor.pending = None;
         editor
     }
 
+    #[cfg(test)]
     pub(super) fn from_joined(
         index: usize,
         page: JoinedEditablePage,
         query: PendingEditableQuery,
     ) -> Self {
-        let joined = joined::Joined::new(query.workspace, query.tab, page);
+        Self::from_joined_with_mode(index, page, query, false)
+    }
+
+    pub(super) fn from_joined_with_mode(
+        index: usize,
+        page: JoinedEditablePage,
+        query: PendingEditableQuery,
+        read_only: bool,
+    ) -> Self {
+        let joined = joined::Joined::new_with_mode(query.workspace, query.tab, page, read_only);
         let object = joined.selected.as_ref().map(|target| target.table.clone());
         let mut editor = Self::with_target(index, object, joined.grid_id());
         editor.joined = Some(joined);
@@ -833,7 +873,18 @@ impl RowEditor {
         }
     }
 
+    #[cfg(test)]
     fn begin_grid_draft(&mut self, row: Option<usize>, column: usize, text: Option<String>) {
+        self.begin_grid_draft_at(row, column, text, None);
+    }
+
+    fn begin_grid_draft_at(
+        &mut self,
+        row: Option<usize>,
+        column: usize,
+        text: Option<String>,
+        joined_point: Option<Point>,
+    ) {
         if self.draft.is_some()
             || self.pending.is_some()
             || self.inspection.is_some()
@@ -864,7 +915,7 @@ impl RowEditor {
         }
         let field = &page.columns[column];
         match text {
-            Some(text) if long_value_field(field) => {
+            Some(text) if field.is_binary() => {
                 self.inspection = Some((
                     row,
                     column,
@@ -877,12 +928,26 @@ impl RowEditor {
                 ));
             }
             text => {
-                let mut draft = Draft::new(page, row, Some(column));
-                if let Some(text) = text {
-                    draft.fields[column].set_cell(Cell::Text(text));
-                    draft.focus_at_end = true;
+                if let Some(row_index) = row
+                    && self.view != DataView::Form
+                    && !field.is_binary()
+                    && !cell_has_newline(&page.rows[row_index].cells[column])
+                {
+                    self.draft = Some(Draft::new_inline(
+                        page,
+                        row_index,
+                        column,
+                        text,
+                        joined_point,
+                    ));
+                } else {
+                    let mut draft = Draft::new(page, row, Some(column));
+                    if let Some(text) = text {
+                        draft.fields[column].set_cell(Cell::Text(text));
+                        draft.focus_at_end = true;
+                    }
+                    self.draft = Some(draft);
                 }
-                self.draft = Some(draft);
             }
         }
         self.error = None;
@@ -1183,12 +1248,13 @@ fn joined_edit_action(
 ) -> Option<GridAction> {
     let point = joined::source_point(target, result)?;
     Some(match text {
-        Some(text) => GridAction::BeginDraft {
+        Some(text) => GridAction::BeginJoinedDraft {
             row: Some(point.row),
             column: point.column,
             text: Some(text),
+            joined_point: result,
         },
-        None => GridAction::Open(point),
+        None => GridAction::OpenJoined(point, result),
     })
 }
 
@@ -1235,7 +1301,7 @@ pub(super) fn panel(
     grid_widths: &mut GridWidths,
 ) {
     let Some(editor) = state else {
-        ui.label(RichText::new("在对象浏览器中选择一张表以查看数据。").color(style::MUTED));
+        ui.label(RichText::new("在对象浏览器中选择一张表以查看数据。").color(style::muted()));
         return;
     };
     if request_focus && keyboard_allowed {
@@ -1299,10 +1365,13 @@ fn present(
         && editor.deleting.is_none()
         && editor.inspection.is_none()
         && editor.filter_draft.is_none();
+    let single_query_read_only =
+        editor.query.is_some() && editor.joined.is_none() && editor.query_read_only;
     let read_only = editor
         .joined
         .as_ref()
-        .is_some_and(|joined| joined.selected.is_none());
+        .is_some_and(|joined| joined.selected.is_none())
+        || single_query_read_only;
     let can_switch_view = !waiting
         && !read_only_modal
         && !reviewing_matches
@@ -1340,64 +1409,778 @@ fn present(
         let dock_available = |ui: &egui::Ui| {
             dock_height.map(|height| (height - (ui.cursor().min.y - top) - info_height).max(0.0))
         };
-        ui.horizontal_wrapped(|ui| {
-            if !docked {
+        if !docked {
+            ui.horizontal(|ui| {
                 ui.heading(if editor.query.is_some() {
                     "编辑查询结果"
                 } else {
                     "编辑表数据"
                 });
-            } else if editor.query.is_some() {
-                ui.label(RichText::new("可编辑结果").strong().color(style::ACCENT));
-                ui.separator();
-            }
-            let mut view = editor.view;
-            ui.add_enabled_ui(can_switch_view, |ui| {
-                result_view_controls(ui, &mut view, !read_only);
-                if keyboard_allowed
-                    && can_switch_view
-                    && !egui::Popup::is_any_open(ui.ctx())
-                    && let Some(next) = ui.input_mut(|input| {
-                        super::consume_result_mode_shortcut(
-                            input,
-                            view,
-                            editor.last_structured_view,
-                            !read_only,
-                        )
-                    })
-                {
-                    view = next;
-                }
-            });
-            let previous = editor.view;
-            editor.set_view(view);
-            if editor.view != previous && !editor.duplicate_only && origin_matches {
-                workspace.set_result_mode(editor.view);
-            }
-            if !editor.duplicate_only {
-                ui.separator();
-                export_kind = super::output::result_export_menu(ui, can_export);
-            }
-            if !docked {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     close = ui
                         .add_enabled(closing_allowed, Button::new("关闭"))
                         .clicked();
                 });
+            });
+            ui.add_space(4.0);
+        }
+        let joined_unselected = editor
+            .joined
+            .as_ref()
+            .is_some_and(|joined| joined.selected.is_none());
+        let has_page = !joined_unselected
+            && editor
+                .joined
+                .as_ref()
+                .map_or(editor.page.as_ref(), joined::Joined::page)
+                .is_some();
+
+        let render_view_switcher =
+            |ui: &mut egui::Ui, editor: &mut RowEditor, workspace: &mut Workspace| {
+                let mut view = editor.view;
+                ui.horizontal(|ui| {
+                    if !can_switch_view {
+                        ui.disable();
+                    }
+                    result_view_controls(ui, &mut view, !read_only);
+                    if keyboard_allowed
+                        && can_switch_view
+                        && !egui::Popup::is_any_open(ui.ctx())
+                        && let Some(next) = ui.input_mut(|input| {
+                            super::consume_result_mode_shortcut(
+                                input,
+                                view,
+                                editor.last_structured_view,
+                                !read_only,
+                            )
+                        })
+                    {
+                        view = next;
+                    }
+                });
+                let previous = editor.view;
+                editor.set_view(view);
+                if editor.view != previous && !editor.duplicate_only && origin_matches {
+                    workspace.set_result_mode(editor.view);
+                }
+            };
+
+        let render_table_paging_controls =
+            |ui: &mut egui::Ui,
+             editor: &mut RowEditor,
+             workspace: &mut Workspace,
+             navigate: &mut Option<Navigate>| {
+                let paging_label = if editor.table_fields.all {
+                    "显示全部".to_owned()
+                } else if editor.table_fields.offset > 0 {
+                    format!(
+                        "偏移 {} · {} 行",
+                        editor.table_fields.offset, editor.table_fields.rows
+                    )
+                } else {
+                    format!("每页 {} 行", editor.table_fields.rows)
+                };
+                ui.horizontal(|ui| {
+                    if !(ready && browsing) {
+                        ui.disable();
+                    }
+                    ui.menu_button(paging_label, |ui| {
+                        ui.set_min_width(210.0);
+                        let all = &mut editor.table_fields.all;
+                        ui.horizontal(|ui| {
+                            let change = ui.radio_value(all, false, "限制行数").changed();
+                            if ui.radio_value(all, true, "显示全部").changed() || change {
+                                *navigate = Some(Navigate::Refresh);
+                                ui.close();
+                            }
+                        });
+                        ui.add_space(4.0);
+                        ui.add_enabled_ui(!*all, |ui| {
+                            egui::Grid::new("table-paging-popover")
+                                .num_columns(2)
+                                .spacing([10.0, 6.0])
+                                .show(ui, |ui| {
+                                    ui.label("起始偏移").on_hover_text("从 0 开始。");
+                                    ui.add(
+                                        egui::DragValue::new(&mut editor.table_fields.offset)
+                                            .range(0..=usize::MAX),
+                                    );
+                                    ui.end_row();
+                                    ui.label("每页行数");
+                                    ui.add(
+                                        egui::DragValue::new(&mut editor.table_fields.rows)
+                                            .range(1..=usize::MAX),
+                                    );
+                                    ui.end_row();
+                                });
+                        });
+                        ui.add_space(6.0);
+                        if ui.add(style::primary("应用并读取")).clicked() {
+                            *navigate = Some(Navigate::Refresh);
+                            ui.close();
+                        }
+                    })
+                    .response
+                    .on_hover_text("设置分页模式、起始偏移和每页行数");
+                });
+                if matches!(editor.pending, Some(Pending::TableRead(_))) {
+                    let tip = if editor.table_read_stopping {
+                        "正在停止读取…"
+                    } else {
+                        "停止读取"
+                    };
+                    if style::icon_button_tinted(
+                        ui,
+                        style::ToolbarIcon::Stop,
+                        !editor.table_read_stopping,
+                        Some(style::error()),
+                        false,
+                        None,
+                        tip,
+                    )
+                    .clicked()
+                        && workspace.cancel_table_read()
+                    {
+                        editor.table_read_stopping = true;
+                    }
+                } else if style::icon_button(
+                    ui,
+                    style::ToolbarIcon::Refresh,
+                    ready && browsing,
+                    "重新读取",
+                )
+                .clicked()
+                {
+                    *navigate = Some(Navigate::Refresh);
+                }
+            };
+
+        if !has_page {
+            let mut switched_target = None;
+            ui.scope(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(5.0, 4.0);
+                ui.spacing_mut().button_padding = egui::vec2(7.0, 2.5);
+                ui.spacing_mut().interact_size.y = 22.0;
+                ui.horizontal_wrapped(|ui| {
+                    render_view_switcher(ui, editor, workspace);
+                    if let Some(joined) = &editor.joined {
+                        ui.separator();
+                        switched_target =
+                            joined.target_picker(ui, ready && editor.can_switch_target());
+                    }
+                    ui.separator();
+                    if table_mode {
+                        render_table_paging_controls(ui, editor, workspace, &mut navigate);
+                    } else if joined_unselected {
+                        if let Some(reply) = editor
+                            .joined
+                            .as_ref()
+                            .and_then(|joined| joined.response.as_ref())
+                        {
+                            ui.label(
+                                RichText::new(format!("显示 {} 行联表", reply.result.rows.len()))
+                                    .small()
+                                    .color(style::muted()),
+                            );
+                            if reply.result.truncated {
+                                ui.label(
+                                    RichText::new("已达行数上限")
+                                        .small()
+                                        .color(style::warning()),
+                                );
+                            }
+                            if reply.targets.is_empty() {
+                                ui.label(
+                                    RichText::new("无可写入源表")
+                                        .small()
+                                        .color(style::muted()),
+                                );
+                            }
+                        }
+                        if style::icon_button(
+                            ui,
+                            style::ToolbarIcon::Refresh,
+                            ready && !read_only_modal,
+                            "重新读取",
+                        )
+                        .clicked()
+                        {
+                            navigate = Some(Navigate::Refresh);
+                        }
+                    } else if ready {
+                        if !editor.previous_offsets.is_empty()
+                            && style::icon_button(ui, style::ToolbarIcon::PrevPage, true, "上一页")
+                                .clicked()
+                        {
+                            navigate = Some(Navigate::Previous);
+                        }
+                        if style::icon_button(ui, style::ToolbarIcon::Refresh, true, "重新读取")
+                            .clicked()
+                        {
+                            navigate = Some(Navigate::Refresh);
+                        }
+                    }
+                    if joined_unselected
+                        && editor.view != DataView::Text
+                        && let Some(reply) = editor
+                            .joined
+                            .as_ref()
+                            .and_then(|joined| joined.response.as_ref())
+                    {
+                        ui.separator();
+                        editor.joined_grid.show_controls(
+                            ui,
+                            &reply.result,
+                            copy_headers,
+                            keyboard_allowed && !waiting && !read_only_modal,
+                        );
+                    }
+                    if !editor.duplicate_only {
+                        if !(joined_unselected && editor.view != DataView::Text) {
+                            ui.separator();
+                        }
+                        export_kind = super::output::result_export_menu(ui, can_export);
+                    }
+                    if let Some(notice) = &editor.notice {
+                        ui.separator();
+                        style::badge(ui, notice, style::accent(), style::accent_soft());
+                    }
+                });
+            });
+            if let Some(target) = switched_target {
+                editor.select_joined_target(target);
             }
+            if editor.joined.is_some() {
+                if !origin_matches {
+                    ui.colored_label(style::error(), "原查询页已变化，请回到原查询重新执行 F8。");
+                } else if editor.draft.is_some() {
+                    ui.colored_label(style::muted(), "保存或取消草稿后可切换写入目标。");
+                }
+            } else if let Some(object) = &editor.object
+                && (!table_mode || !workspace.show_data_info || editor.page.is_none())
+            {
+                let name = format!("{}.{}", object.schema, object.name);
+                ui.add(egui::Label::new(RichText::new(&name).monospace()).truncate())
+                    .on_hover_text(name);
+            }
+            if let Some(error) = &editor.error {
+                ui.colored_label(style::error(), error);
+            }
+            if waiting {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(&workspace.status);
+                    if matches!(editor.pending, Some(Pending::Read(_)))
+                        && workspace.reading_editable_result()
+                    {
+                        let stopping = workspace.editable_read_stopping();
+                        let label = if stopping {
+                            "正在停止…"
+                        } else {
+                            "停止读取"
+                        };
+                        let shortcut = keyboard_allowed && ui.input_mut(super::consume_f8);
+                        if ui
+                            .add_enabled(!stopping, Button::new(label))
+                            .on_hover_text("F8")
+                            .clicked()
+                            || shortcut
+                        {
+                            workspace.cancel_editable_read();
+                        }
+                    }
+                });
+            }
+            if let Some(joined) = &editor.joined
+                && joined.selected.is_none()
+            {
+                let grid_id = joined.result_grid_id();
+                if let Some(reply) = &joined.response {
+                    let height = dock_available(ui).map_or_else(
+                        || (size.y - 240.0 - info_height).clamp(150.0, 510.0),
+                        |available| available.max(56.0),
+                    );
+                    ui.push_id(grid_id, |ui| {
+                        ui.set_height(height);
+                        if editor.view == DataView::Text {
+                            editor.joined_grid.show_text(
+                                ui,
+                                &reply.result,
+                                &mut editor.text_rows,
+                                copy_headers,
+                                keyboard_allowed && !waiting && !read_only_modal,
+                                std::mem::take(&mut editor.focus_text),
+                            );
+                        } else {
+                            editor.joined_grid.show_read_only(
+                                ui,
+                                &reply.result,
+                                copy_headers,
+                                keyboard_allowed && !waiting && !read_only_modal,
+                                settings,
+                                grid_widths,
+                            );
+                        }
+                    });
+                    if show_data_info {
+                        let summary = reply
+                            .query_timing
+                            .map(|timing| query_time_label(timing.elapsed, timing.execution))
+                            .unwrap_or_default();
+                        data_info_line(
+                            ui,
+                            &summary,
+                            editor.query.as_ref().map(|(sql, _)| sql.as_str()),
+                        );
+                    }
+                }
+            }
+            return;
+        }
+
+        let (
+            page_edit_error_none,
+            page_has_more,
+            page_offset,
+            page_row_count,
+            page_can_insert,
+            draft_has_changes,
+        ) = {
+            let page = editor
+                .joined
+                .as_ref()
+                .map_or(editor.page.as_ref(), joined::Joined::page)
+                .expect("loaded page");
+            (
+                page.edit_error.is_none(),
+                page.has_more,
+                page.offset,
+                page.rows.len(),
+                page.can_insert,
+                editor
+                    .draft
+                    .as_ref()
+                    .is_some_and(|draft| draft.has_changes(page)),
+            )
+        };
+        let draft_is_inline = editor.draft.as_ref().is_some_and(Draft::is_inline);
+        let editable = ready && !read_only && page_edit_error_none;
+        let in_form = editor.view == DataView::Form;
+        let in_text = editor.view == DataView::Text;
+        let can_edit_rows = editable && !in_text;
+        let full_join_info = if in_form {
+            None
+        } else {
+            editor.joined.as_ref().and_then(|joined| {
+                let result = &joined.response.as_ref()?.result;
+                let target = joined.binding()?;
+                Some((
+                    result.rows.len(),
+                    result.truncated,
+                    joined_source_rows(target, editor.joined_grid.selected_source_rows()),
+                    joined_source_rows(target, editor.joined_grid.checked_source_rows()),
+                ))
+            })
+        };
+        let has_full_join = full_join_info.is_some();
+        let selected_join_rows = full_join_info
+            .as_ref()
+            .map_or_else(Vec::new, |(_, _, selected, _)| selected.clone());
+        let checked_join_rows = full_join_info
+            .as_ref()
+            .map_or_else(Vec::new, |(_, _, _, checked)| checked.clone());
+        let mut point = editor.grid.form_point();
+        let draft_row = editor.draft.as_ref().and_then(|draft| draft.row);
+        if let Some(row) = draft_row {
+            point.row = row;
+        }
+        let moving_draft = keyboard_allowed
+            && editable
+            && !in_text
+            && draft_row.is_some()
+            && editor.deleting.is_none()
+            && editor.inspection.is_none()
+            && editor.filter_draft.is_none();
+        let can_page = ready && (browsing || moving_draft);
+        let has_previous_page = editor.has_previous_page();
+        let mut toolbar_action = None;
+        let mut open_draft: Option<Option<usize>> = None;
+        let mut switched_target = None;
+        let mut inline_commit = false;
+        let mut inline_cancel = false;
+
+        // 将视图切换、目标表选择、分页、数据读写、未保存提示和导出统一收敛到单行紧凑工具栏
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(5.0, 4.0);
+            ui.spacing_mut().button_padding = egui::vec2(7.0, 2.5);
+            ui.spacing_mut().interact_size.y = 22.0;
+            ui.horizontal_wrapped(|ui| {
+                render_view_switcher(ui, editor, workspace);
+                if let Some(joined) = &editor.joined {
+                    ui.separator();
+                    switched_target =
+                        joined.target_picker(ui, ready && editor.can_switch_target());
+                } else if editor.query.is_some()
+                    && let Some(object) = &editor.object
+                {
+                    ui.separator();
+                    let can_toggle = ready && browsing && page_edit_error_none;
+                    let table_name = object.name.clone();
+                    let label = if editor.query_read_only {
+                        RichText::new("(只读)").color(style::muted())
+                    } else {
+                        RichText::new(&table_name).strong().color(style::accent())
+                    };
+                    ui.horizontal(|ui| {
+                        if !can_toggle {
+                            ui.disable();
+                        }
+                        egui::ComboBox::from_id_salt(("single-query-target", editor.grid.id))
+                            .width(150.0)
+                            .selected_text(label)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut editor.query_read_only, true, "(只读)");
+                                ui.selectable_value(
+                                    &mut editor.query_read_only,
+                                    false,
+                                    &table_name,
+                                );
+                            })
+                            .response
+                            .on_hover_text(
+                                "选择表名后归属该表的单元格变为可编辑状态；选「(只读)」锁定不可改",
+                            );
+                    });
+                }
+                ui.separator();
+                if editor.query.is_none()
+                    && style::icon_button(
+                        ui,
+                        style::ToolbarIcon::PrevPage,
+                        can_page && has_previous_page,
+                        "上一页",
+                    )
+                    .clicked()
+                {
+                    row_move = Some(RowMove::Page(Navigate::Previous));
+                }
+                if let Some((join_rows, _, _, _)) = &full_join_info {
+                    ui.label(
+                        RichText::new(format!("{join_rows} 行联表"))
+                            .small()
+                            .color(style::muted()),
+                    );
+                } else if page_row_count == 0 {
+                    ui.label(RichText::new("0 行").small().color(style::muted()));
+                } else {
+                    ui.label(
+                        RichText::new(format!(
+                            "{}–{}",
+                            page_offset + 1,
+                            page_offset + page_row_count
+                        ))
+                        .small()
+                        .monospace()
+                        .color(style::muted()),
+                    );
+                }
+                if editor.query.is_none()
+                    && style::icon_button(
+                        ui,
+                        style::ToolbarIcon::NextPage,
+                        can_page && page_has_more,
+                        if editor.table_range == TableReadRange::All {
+                            "继续分页"
+                        } else {
+                            "下一页"
+                        },
+                    )
+                    .clicked()
+                {
+                    row_move = Some(RowMove::Page(Navigate::Next(page_offset + page_row_count)));
+                }
+                if table_mode {
+                    render_table_paging_controls(ui, editor, workspace, &mut navigate);
+                } else if style::icon_button(
+                    ui,
+                    style::ToolbarIcon::Refresh,
+                    ready && browsing,
+                    "重新读取",
+                )
+                .clicked()
+                {
+                    navigate = Some(Navigate::Refresh);
+                }
+                if editor.query.is_none() && !editor.server_selection.predicates.is_empty() {
+                    let label = format!("清除筛选（{}）", editor.server_selection.predicates.len());
+                    if ui
+                        .add_enabled(ready && browsing, Button::new(label))
+                        .clicked()
+                    {
+                        editor.server_selection.predicates.clear();
+                        navigate = Some(Navigate::First);
+                    }
+                }
+                if editor.query.is_none() && !editor.server_selection.order.is_empty() {
+                    let label = format!("清除排序（{}）", editor.server_selection.order.len());
+                    if ui
+                        .add_enabled(ready && browsing, Button::new(label))
+                        .clicked()
+                    {
+                        editor.server_selection.order.clear();
+                        navigate = Some(Navigate::First);
+                    }
+                }
+                if editor.query.is_some()
+                    && full_join_info
+                        .as_ref()
+                        .map_or(page_has_more, |(_, truncated, _, _)| *truncated)
+                {
+                    ui.label(
+                        RichText::new("已达行数上限")
+                            .small()
+                            .color(style::warning()),
+                    );
+                }
+                if table_mode && editor.table_range == TableReadRange::All && page_has_more {
+                    ui.label(
+                        RichText::new("已达显示上限")
+                            .small()
+                            .color(style::warning()),
+                    );
+                }
+                ui.separator();
+                let add_enabled = can_edit_rows && browsing && page_can_insert;
+                let add_tip = if add_enabled {
+                    "新增一行"
+                } else if editor.joined.is_some() {
+                    "新增一行（需打开完整数据表）"
+                } else if read_only {
+                    "新增一行（当前处于只读模式，请在下拉框中选择目标表）"
+                } else {
+                    "新增一行（需打开完整数据表或查询全部字段）"
+                };
+                if style::icon_button_tinted(
+                    ui,
+                    style::ToolbarIcon::AddRow,
+                    add_enabled,
+                    Some(style::success()),
+                    false,
+                    None,
+                    add_tip,
+                )
+                .clicked()
+                {
+                    open_draft = Some(None);
+                }
+                let row = if has_full_join {
+                    match selected_join_rows.as_slice() {
+                        [row] => Some(*row),
+                        _ => None,
+                    }
+                } else if in_form {
+                    (point.row < page_row_count).then_some(point.row)
+                } else {
+                    editor.grid.single_row()
+                };
+                let selected = can_edit_rows && browsing && row.is_some();
+                if style::icon_button(
+                    ui,
+                    style::ToolbarIcon::EditRow,
+                    selected,
+                    if in_form {
+                        "编辑当前行"
+                    } else {
+                        "编辑所选行（也可直接双击单元格就地修改）"
+                    },
+                )
+                .clicked()
+                    && let Some(row) = row
+                {
+                    open_draft = Some(Some(row));
+                }
+                if style::icon_button(
+                    ui,
+                    style::ToolbarIcon::DuplicateRow,
+                    selected,
+                    "复制为新行",
+                )
+                .clicked()
+                    && let Some(row) = row
+                {
+                    toolbar_action = Some(GridAction::Duplicate(row));
+                }
+                let checked = if has_full_join {
+                    checked_join_rows.len()
+                } else if in_form {
+                    0
+                } else {
+                    editor.grid.checked.rows.len()
+                };
+                let delete_label = if checked > 0 {
+                    format!("删除已勾选的 {checked} 行")
+                } else if selected_join_rows.len() > 1 {
+                    format!("删除所选的 {} 条源记录", selected_join_rows.len())
+                } else if in_form {
+                    "删除当前行".into()
+                } else {
+                    "删除所选行".into()
+                };
+                let delete_badge = if checked > 0 {
+                    Some(checked.to_string())
+                } else if selected_join_rows.len() > 1 {
+                    Some(selected_join_rows.len().to_string())
+                } else {
+                    None
+                };
+                if style::icon_button_tinted(
+                    ui,
+                    style::ToolbarIcon::DeleteRow,
+                    can_edit_rows
+                        && browsing
+                        && !read_only_modal
+                        && (checked > 0 || row.is_some() || !selected_join_rows.is_empty()),
+                    Some(style::error()),
+                    false,
+                    delete_badge.as_deref(),
+                    &delete_label,
+                )
+                .clicked()
+                {
+                    editor.deleting = if has_full_join {
+                        match if checked > 0 {
+                            &checked_join_rows
+                        } else {
+                            &selected_join_rows
+                        }
+                        .as_slice()
+                        {
+                            [] => None,
+                            [row] => Some(Deletion::Row(*row)),
+                            rows => Some(Deletion::Checked(rows.to_vec())),
+                        }
+                    } else if in_form {
+                        row.map(Deletion::Row)
+                    } else {
+                        editor.grid.deletion(row)
+                    };
+                }
+                ui.separator();
+                if in_form {
+                    if let Some(page) = editor
+                        .joined
+                        .as_ref()
+                        .map_or(editor.page.as_ref(), joined::Joined::page)
+                        && page.rows.get(point.row).is_some()
+                    {
+                        style::icon_menu_button(
+                            ui,
+                            style::ToolbarIcon::Copy,
+                            !waiting,
+                            "复制（选择范围与格式）",
+                            |ui| {
+                                copy_menu(ui, page, None, Some(point), copy_headers);
+                            },
+                        );
+                    }
+                } else if has_full_join && !in_text {
+                    if let Some(reply) = editor
+                        .joined
+                        .as_ref()
+                        .and_then(|joined| joined.response.as_ref())
+                    {
+                        editor.joined_grid.show_controls(
+                            ui,
+                            &reply.result,
+                            copy_headers,
+                            keyboard_allowed
+                                && !waiting
+                                && !moving_draft
+                                && !draft_is_inline
+                                && !read_only_modal,
+                        );
+                    }
+                } else if !in_text
+                    && let Some(page) = editor.page.as_ref()
+                {
+                    ui.horizontal(|ui| {
+                        if waiting {
+                            ui.disable();
+                        }
+                        editor.grid.copy_controls(ui, page, copy_headers);
+                    });
+                }
+                if !editor.duplicate_only {
+                    export_kind = super::output::result_export_menu(ui, can_export);
+                }
+                if draft_has_changes {
+                    ui.separator();
+                    egui::Frame::new()
+                        .fill(style::error_soft())
+                        .stroke(egui::Stroke::new(
+                            1.0_f32,
+                            style::error().gamma_multiply(0.45),
+                        ))
+                        .corner_radius(egui::CornerRadius::same(5))
+                        .inner_margin(egui::Margin::symmetric(8, 2))
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new("数据已修改但尚未保存")
+                                    .small()
+                                    .strong()
+                                    .color(style::error()),
+                            );
+                        });
+                    if draft_is_inline {
+                        if style::icon_button_tinted(
+                            ui,
+                            style::ToolbarIcon::Save,
+                            editable && !waiting,
+                            None,
+                            true,
+                            None,
+                            "保存当前行修改（向上/向下移动焦点或按 Enter 也会自动保存）",
+                        )
+                        .clicked()
+                        {
+                            inline_commit = true;
+                        }
+                        if style::icon_button(
+                            ui,
+                            style::ToolbarIcon::Cancel,
+                            !waiting,
+                            "取消修改（Esc）",
+                        )
+                        .clicked()
+                        {
+                            inline_cancel = true;
+                        }
+                    }
+                } else if draft_is_inline {
+                    ui.separator();
+                    ui.label(
+                        RichText::new("上下移动焦点自动保存 · Esc 取消")
+                            .small()
+                            .color(style::muted()),
+                    );
+                } else if let Some(notice) = &editor.notice {
+                    ui.separator();
+                    style::badge(ui, notice, style::accent(), style::accent_soft());
+                }
+            });
         });
-        if let Some(joined) = &editor.joined
-            && let Some(target) = joined.target_picker(ui, ready && editor.can_switch_target())
-        {
+
+        if let Some(target) = switched_target {
             editor.select_joined_target(target);
         }
         if editor.joined.is_some() {
             if !origin_matches {
-                ui.colored_label(style::ERROR, "原查询页已变化，请回到原查询重新执行 F8。");
-            } else if editor.draft.is_some() {
-                ui.colored_label(style::MUTED, "保存或取消草稿后可切换写入目标。");
+                ui.colored_label(style::error(), "原查询页已变化，请回到原查询重新执行 F8。");
+            } else if editor.draft.is_some() && !draft_is_inline {
+                ui.colored_label(style::muted(), "保存或取消草稿后可切换写入目标。");
             }
         } else if let Some(object) = &editor.object
+            && editor.query.is_none()
             && (!table_mode || !workspace.show_data_info || editor.page.is_none())
         {
             let name = format!("{}.{}", object.schema, object.name);
@@ -1405,10 +2188,7 @@ fn present(
                 .on_hover_text(name);
         }
         if let Some(error) = &editor.error {
-            ui.colored_label(style::ERROR, error);
-        }
-        if let Some(notice) = &editor.notice {
-            ui.colored_label(style::ACCENT, notice);
+            ui.colored_label(style::error(), error);
         }
         if waiting {
             ui.horizontal(|ui| {
@@ -1435,133 +2215,21 @@ fn present(
                 }
             });
         }
-        if table_mode {
-            ui.horizontal_wrapped(|ui| {
-                ui.add_enabled_ui(ready && browsing, |ui| {
-                    let all = &mut editor.table_fields.all;
-                    let change = ui.radio_value(all, false, "限制行数").changed();
-                    if ui.radio_value(all, true, "显示全部").changed() || change {
-                        navigate = Some(Navigate::Refresh);
-                    }
-                    ui.separator();
-                    ui.add_enabled_ui(!*all, |ui| {
-                        ui.label("起始偏移").on_hover_text("从 0 开始。");
-                        ui.add(
-                            egui::DragValue::new(&mut editor.table_fields.offset)
-                                .range(0..=usize::MAX),
-                        );
-                        ui.label("每页行数");
-                        ui.add(
-                            egui::DragValue::new(&mut editor.table_fields.rows)
-                                .range(1..=usize::MAX),
-                        );
-                    });
-                });
-                if matches!(editor.pending, Some(Pending::TableRead(_))) {
-                    let label = if editor.table_read_stopping {
-                        "正在停止…"
-                    } else {
-                        "停止读取"
-                    };
-                    if ui
-                        .add_enabled(!editor.table_read_stopping, Button::new(label))
-                        .clicked()
-                        && workspace.cancel_table_read()
-                    {
-                        editor.table_read_stopping = true;
-                    }
-                } else if ui
-                    .add_enabled(ready && browsing, Button::new("重新读取"))
-                    .clicked()
-                {
-                    navigate = Some(Navigate::Refresh);
-                }
-            });
-        }
-
-        if let Some(joined) = &editor.joined
-            && joined.selected.is_none()
-        {
-            if ui
-                .add_enabled(ready && !read_only_modal, Button::new("重新读取"))
-                .clicked()
-            {
-                navigate = Some(Navigate::Refresh);
-            }
-            let grid_id = joined.result_grid_id();
-            if let Some(reply) = &joined.response {
-                ui.label(format!("显示 {} 行联表结果", reply.result.rows.len()));
-                if reply.result.truncated {
-                    ui.colored_label(style::MUTED, "达到查询结果行数上限");
-                }
-                if reply.targets.is_empty() {
-                    ui.colored_label(style::MUTED, "查询结果没有可写入的源表。");
-                }
-                let height = dock_available(ui).map_or_else(
-                    || (size.y - 240.0 - info_height).clamp(150.0, 510.0),
-                    |available| available.max(56.0),
-                );
-                ui.push_id(grid_id, |ui| {
-                    ui.set_height(height);
-                    if editor.view == DataView::Text {
-                        editor.joined_grid.show_text(
-                            ui,
-                            &reply.result,
-                            &mut editor.text_rows,
-                            copy_headers,
-                            keyboard_allowed && !waiting && !read_only_modal,
-                            std::mem::take(&mut editor.focus_text),
-                        );
-                    } else {
-                        editor.joined_grid.show(
-                            ui,
-                            &reply.result,
-                            copy_headers,
-                            keyboard_allowed && !waiting && !read_only_modal,
-                            settings,
-                            grid_widths,
-                        );
-                    }
-                });
-                if show_data_info {
-                    let summary = reply
-                        .query_timing
-                        .map(|timing| query_time_label(timing.elapsed, timing.execution))
-                        .unwrap_or_default();
-                    data_info_line(
-                        ui,
-                        &summary,
-                        editor.query.as_ref().map(|(sql, _)| sql.as_str()),
-                    );
-                }
-            }
-            return;
-        }
         let Some(page) = editor
             .joined
             .as_ref()
             .map_or(editor.page.as_ref(), joined::Joined::page)
         else {
-            if ready && !table_mode {
-                ui.horizontal(|ui| {
-                    if !editor.previous_offsets.is_empty() && ui.button("上一页").clicked() {
-                        navigate = Some(Navigate::Previous);
-                    }
-                    if ui.button("重新读取").clicked() {
-                        navigate = Some(Navigate::Refresh);
-                    }
-                });
-            }
             return;
         };
-
-        if let Some(reason) = &page.edit_error {
-            ui.colored_label(style::MUTED, reason);
+        if let Some(target_row) = open_draft {
+            editor.draft = Some(Draft::new(page, target_row, None));
         }
-        let editable = ready && page.edit_error.is_none();
+        if let Some(reason) = &page.edit_error {
+            ui.colored_label(style::muted(), reason);
+        }
         let in_form = editor.view == DataView::Form;
         let in_text = editor.view == DataView::Text;
-        let can_edit_rows = editable && !in_text;
         let full_join = if in_form {
             None
         } else {
@@ -1573,214 +2241,6 @@ fn present(
                 ))
             })
         };
-        let selected_join_rows = full_join.map_or_else(Vec::new, |(_, _, target)| {
-            joined_source_rows(target, editor.joined_grid.selected_source_rows())
-        });
-        let checked_join_rows = full_join.map_or_else(Vec::new, |(_, _, target)| {
-            joined_source_rows(target, editor.joined_grid.checked_source_rows())
-        });
-        let mut point = editor.grid.form_point();
-        let draft_row = editor.draft.as_ref().and_then(|draft| draft.row);
-        if let Some(row) = draft_row {
-            point.row = row;
-        }
-        let moving_draft = keyboard_allowed
-            && editable
-            && !in_text
-            && draft_row.is_some()
-            && editor.deleting.is_none()
-            && editor.inspection.is_none()
-            && editor.filter_draft.is_none();
-        let can_page = ready && (browsing || moving_draft);
-        let has_previous_page = editor.has_previous_page();
-        let mut toolbar_action = None;
-        ui.horizontal_wrapped(|ui| {
-            if editor.query.is_none()
-                && ui
-                    .add_enabled(can_page && has_previous_page, Button::new("上一页"))
-                    .clicked()
-            {
-                row_move = Some(RowMove::Page(Navigate::Previous));
-            }
-            if editor.query.is_none()
-                && ui
-                    .add_enabled(
-                        can_page && page.has_more,
-                        Button::new(if editor.table_range == TableReadRange::All {
-                            "继续分页"
-                        } else {
-                            "下一页"
-                        }),
-                    )
-                    .clicked()
-            {
-                row_move = Some(RowMove::Page(Navigate::Next(page.offset + page.rows.len())));
-            }
-            if !table_mode
-                && ui
-                    .add_enabled(ready && browsing, Button::new("重新读取"))
-                    .clicked()
-            {
-                navigate = Some(Navigate::Refresh);
-            }
-            if editor.query.is_none() && !editor.server_selection.predicates.is_empty() {
-                let label = format!("清除筛选（{}）", editor.server_selection.predicates.len());
-                if ui
-                    .add_enabled(ready && browsing, Button::new(label))
-                    .clicked()
-                {
-                    editor.server_selection.predicates.clear();
-                    navigate = Some(Navigate::First);
-                }
-            }
-            if editor.query.is_none() && !editor.server_selection.order.is_empty() {
-                let label = format!("清除排序（{}）", editor.server_selection.order.len());
-                if ui
-                    .add_enabled(ready && browsing, Button::new(label))
-                    .clicked()
-                {
-                    editor.server_selection.order.clear();
-                    navigate = Some(Navigate::First);
-                }
-            }
-            if let Some((_, result, _)) = full_join {
-                ui.label(
-                    RichText::new(format!("显示 {} 行联表结果", result.rows.len()))
-                        .small()
-                        .color(style::MUTED),
-                );
-            } else if page.rows.is_empty() {
-                ui.label(RichText::new("没有数据").small().color(style::MUTED));
-            } else {
-                ui.label(
-                    RichText::new(format!(
-                        "第 {}–{} 行",
-                        page.offset + 1,
-                        page.offset + page.rows.len()
-                    ))
-                    .small()
-                    .color(style::MUTED),
-                );
-            }
-            if editor.query.is_some()
-                && full_join.map_or(page.has_more, |(_, result, _)| result.truncated)
-            {
-                ui.label(
-                    RichText::new("达到查询结果行数上限")
-                        .small()
-                        .color(style::WARNING),
-                );
-            }
-            if table_mode && editor.table_range == TableReadRange::All && page.has_more {
-                ui.label(
-                    RichText::new("已达到表格显示容量上限。")
-                        .small()
-                        .color(style::WARNING),
-                );
-            }
-            ui.add_enabled_ui(!waiting, |ui| {
-                if in_form {
-                    if page.rows.get(point.row).is_some() {
-                        ui.menu_button("复制", |ui| {
-                            copy_menu(ui, page, None, Some(point), copy_headers);
-                        });
-                    }
-                } else if full_join.is_none() && !in_text {
-                    editor.grid.copy_controls(ui, page, copy_headers);
-                }
-            });
-            ui.separator();
-            if ui
-                .add_enabled(
-                    can_edit_rows && browsing && page.can_insert,
-                    Button::new("新增一行"),
-                )
-                .on_disabled_hover_text(if editor.joined.is_some() {
-                    "要新增空白记录，请打开完整数据表。"
-                } else {
-                    "要新增记录，请打开完整数据表或查询全部字段。"
-                })
-                .clicked()
-            {
-                editor.draft = Some(Draft::new(page, None, None));
-            }
-            let row = if full_join.is_some() {
-                match selected_join_rows.as_slice() {
-                    [row] => Some(*row),
-                    _ => None,
-                }
-            } else if in_form {
-                page.rows.get(point.row).map(|_| point.row)
-            } else {
-                editor.grid.single_row()
-            };
-            let selected = can_edit_rows && browsing && row.is_some();
-            if ui
-                .add_enabled(
-                    selected,
-                    Button::new(if in_form {
-                        "编辑当前行"
-                    } else {
-                        "编辑所选行"
-                    }),
-                )
-                .clicked()
-                && let Some(row) = row
-            {
-                editor.draft = Some(Draft::new(page, Some(row), None));
-            }
-            if ui
-                .add_enabled(selected, Button::new("复制为新行"))
-                .clicked()
-                && let Some(row) = row
-            {
-                toolbar_action = Some(GridAction::Duplicate(row));
-            }
-            let checked = if full_join.is_some() {
-                checked_join_rows.len()
-            } else if in_form {
-                0
-            } else {
-                editor.grid.checked.rows.len()
-            };
-            let delete_label = if checked > 0 {
-                format!("删除已勾选的 {checked} 行")
-            } else if selected_join_rows.len() > 1 {
-                format!("删除所选的 {} 条源记录", selected_join_rows.len())
-            } else if in_form {
-                "删除当前行".into()
-            } else {
-                "删除所选行".into()
-            };
-            if ui
-                .add_enabled(
-                    can_edit_rows
-                        && browsing
-                        && !read_only_modal
-                        && (checked > 0 || row.is_some() || !selected_join_rows.is_empty()),
-                    Button::new(RichText::new(delete_label).color(style::ERROR)),
-                )
-                .clicked()
-            {
-                editor.deleting = if full_join.is_some() {
-                    match if checked > 0 {
-                        &checked_join_rows
-                    } else {
-                        &selected_join_rows
-                    }
-                    .as_slice()
-                    {
-                        [] => None,
-                        [row] => Some(Deletion::Row(*row)),
-                        rows => Some(Deletion::Checked(rows.to_vec())),
-                    }
-                } else if in_form {
-                    row.map(Deletion::Row)
-                } else {
-                    editor.grid.deletion(row)
-                };
-            }
-        });
         if let Some(draft) = &mut editor.filter_draft {
             let (change, dismiss) = show_filter_draft(ui, draft, page);
             if let Some(change) = change {
@@ -1798,18 +2258,24 @@ fn present(
                 editor.grid.selection.request_focus();
             }
         }
+        let inline_editing = editor.draft.as_ref().is_some_and(Draft::is_inline);
         let editing = editor.draft.is_some()
             || editor.deleting.is_some()
             || reviewing_matches
             || editor.inspection.is_some()
             || editor.filter_draft.is_some();
+        let panel_editing = editor.draft.as_ref().is_some_and(|draft| !draft.is_inline())
+            || editor.deleting.is_some()
+            || reviewing_matches
+            || editor.inspection.is_some()
+            || editor.filter_draft.is_some();
         let grid_height = if let Some(available) = dock_available(ui) {
-            if editing {
+            if panel_editing {
                 (available * 0.34).clamp(54.0, 162.0)
             } else {
                 available.max(56.0)
             }
-        } else if editing {
+        } else if panel_editing {
             (size.y * 0.27 - info_height).clamp(112.0, 240.0)
         } else {
             (size.y - 230.0 - info_height).clamp(150.0, 510.0)
@@ -1826,7 +2292,8 @@ fn present(
             headers: copy_headers,
             height: grid_height,
         };
-        let keyboard_action = if draft_keys
+        let keyboard_action = if !inline_editing
+            && draft_keys
             && moving_draft
             && !egui::Popup::is_any_open(ui.ctx())
             && editor
@@ -1913,10 +2380,73 @@ fn present(
         } else if let Some((grid_id, result, target)) = full_join {
             let can_edit = |result| joined::source_point(target, result).is_some();
             let can_check = |row| editable && !editing && joined::source_row(target, row).is_some();
+            let modified_row = editor
+                .draft
+                .as_ref()
+                .filter(|draft| draft.is_inline())
+                .and_then(|draft| draft.row);
+            let modified_previews: Vec<(usize, String)> = editor
+                .draft
+                .as_ref()
+                .filter(|draft| draft.is_inline())
+                .map(|draft| {
+                    (0..page.columns.len())
+                        .filter_map(|col| {
+                            draft
+                                .modified_preview(page, col)
+                                .map(|preview| (col, preview))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let modified_cell = |result_point: Point| -> Option<String> {
+                let row_idx = modified_row?;
+                let sp = joined::source_point(target, result_point)?;
+                if sp.row != row_idx {
+                    return None;
+                }
+                modified_previews
+                    .iter()
+                    .find(|(col, _)| *col == sp.column)
+                    .map(|(_, text)| text.clone())
+            };
+            let mut inline_request_focus = false;
+            let mut inline_changed = false;
+            let mut inline_col_for_change = None;
+            let mut inline_select_all = false;
+            let mut inline_focus_at_end = false;
+            let mut inline_was_null = false;
+            let mut inline_point = None;
+            if let Some(draft) = editor.draft.as_mut()
+                && let Some(col) = draft.inline_column
+                && let Some(row_idx) = draft.row
+                && let Some(jp) = draft.inline_joined_point
+            {
+                inline_request_focus = draft.focus.take() == Some(col);
+                inline_select_all = draft.inline_select_all;
+                inline_focus_at_end = std::mem::take(&mut draft.focus_at_end);
+                inline_was_null = draft.fields[col].mode == Mode::Keep
+                    && matches!(page.rows[row_idx].cells[col], Cell::Null);
+                inline_col_for_change = Some(col);
+                inline_point = Some(jp);
+            }
             let action = ui
                 .push_id(grid_id, |ui| {
                     ui.set_height(grid_height);
-                    ui.add_enabled_ui(!waiting && (!editing || moving_draft), |ui| {
+                    ui.add_enabled_ui(!waiting && (!panel_editing || moving_draft), |ui| {
+                        let inline = inline_point.and_then(|jp| {
+                            let col = inline_col_for_change?;
+                            let draft = editor.draft.as_mut()?;
+                            Some(InlineJoinedCell {
+                                point: jp,
+                                text: &mut draft.fields[col].text,
+                                was_null: inline_was_null,
+                                request_focus: &mut inline_request_focus,
+                                select_all: inline_select_all,
+                                focus_at_end: inline_focus_at_end,
+                                changed: &mut inline_changed,
+                            })
+                        });
                         editor.joined_grid.show_joined(
                             ui,
                             result,
@@ -1924,23 +2454,53 @@ fn present(
                             keyboard_allowed && !editing && !waiting && !read_only_modal,
                             settings,
                             grid_widths,
-                            (editable && !editing).then_some(&can_edit as _),
+                            (editable && !panel_editing).then_some(&can_edit as _),
                             Some(&can_check),
                             moving_draft,
+                            inline,
+                            (!modified_previews.is_empty()).then_some(&modified_cell as _),
                         )
                     })
                     .inner
                 })
                 .inner;
+            if inline_changed
+                && let Some(col) = inline_col_for_change
+                && let Some(draft) = editor.draft.as_mut()
+            {
+                draft.fields[col].mode = Mode::Text;
+            }
             match action {
                 Some(JoinedGridAction::Edit(result, text)) => {
                     joined_edit_action(target, result, text)
                 }
                 Some(JoinedGridAction::Move(result)) => {
-                    if row_move.is_none() {
-                        row_move = joined_move(target, result, point.column);
+                    if let Some(draft) = editor.draft.as_ref()
+                        && draft.is_inline()
+                        && let Some(sp) = joined::source_point(target, result)
+                        && draft.row == Some(sp.row)
+                        && !page.columns[sp.column].is_binary()
+                        && !cell_has_newline(&page.rows[sp.row].cells[sp.column])
+                    {
+                        Some(GridAction::InlineSwitchCell {
+                            column: sp.column,
+                            joined_point: Some(result),
+                        })
+                    } else {
+                        if row_move.is_none() {
+                            row_move = joined_move(target, result, point.column);
+                        }
+                        if row_move.is_none() {
+                            Some(GridAction::InlineCommit)
+                        } else {
+                            None
+                        }
                     }
-                    None
+                }
+                Some(JoinedGridAction::InlineCommit) => Some(GridAction::InlineCommit),
+                Some(JoinedGridAction::InlineCancel) => Some(GridAction::InlineCancel),
+                Some(JoinedGridAction::InlineStepColumn { forward }) => {
+                    Some(GridAction::InlineStepColumn { forward })
                 }
                 None => None,
             }
@@ -1957,24 +2517,119 @@ fn present(
                 keyboard_allowed && !editing && !waiting,
                 moving_draft,
                 editable,
+                single_query_read_only,
+                has_previous_page,
+                &mut editor.draft,
                 body_height,
                 server_tools,
                 copy_headers,
                 grid_widths,
             )
         };
+        if inline_commit {
+            if let Some(draft) = &editor.draft {
+                if draft.has_changes(page) {
+                    write = Some(draft.edit(page));
+                } else {
+                    editor.draft = None;
+                    editor.error = None;
+                    editor.grid.selection.request_focus();
+                }
+            }
+        } else if inline_cancel {
+            editor.draft = None;
+            editor.queued_move = None;
+            row_move = None;
+            editor.error = None;
+            editor.grid.selection.request_focus();
+        }
         if let Some(action) = toolbar_action.or(keyboard_action).or(action) {
             match action {
                 GridAction::BeginDraft { row, column, text } => {
-                    draft_start = Some((row, column, text));
+                    draft_start = Some((row, column, text, None));
                 }
-                GridAction::Open(Point { row, column }) => {
-                    if in_form || full_join.is_some() {
-                        editor.grid.focus_form_point(page, Point { row, column });
+                GridAction::BeginJoinedDraft {
+                    row,
+                    column,
+                    text,
+                    joined_point,
+                } => {
+                    draft_start = Some((row, column, text, Some(joined_point)));
+                }
+                GridAction::InlineCommit => {
+                    if let Some(draft) = &editor.draft {
+                        if draft.has_changes(page) {
+                            write = Some(draft.edit(page));
+                        } else {
+                            editor.draft = None;
+                            editor.error = None;
+                            editor.grid.selection.request_focus();
+                        }
                     }
+                }
+                GridAction::InlineCancel => {
+                    editor.draft = None;
+                    editor.queued_move = None;
+                    row_move = None;
+                    editor.error = None;
+                    editor.grid.selection.request_focus();
+                }
+                GridAction::InlineSwitchCell {
+                    column,
+                    joined_point,
+                } => {
+                    if let Some(draft) = &mut editor.draft {
+                        draft.switch_inline_column(page, column, joined_point);
+                        if let Some(row) = draft.row {
+                            editor.grid.focus_form_point(page, Point { row, column });
+                        }
+                    }
+                }
+                GridAction::InlineStepColumn { forward } => {
+                    if let Some(draft) = &mut editor.draft {
+                        if let Some((_, _, target)) = full_join {
+                            if let Some(current_jp) = draft.inline_joined_point
+                                && let Some(row_idx) = draft.row
+                            {
+                                let col_count = target.result_columns.len();
+                                let mut candidate = current_jp.column;
+                                for _ in 0..col_count {
+                                    candidate = if forward {
+                                        (candidate + 1) % col_count
+                                    } else {
+                                        (candidate + col_count - 1) % col_count
+                                    };
+                                    let next_jp = Point {
+                                        row: current_jp.row,
+                                        column: candidate,
+                                    };
+                                    if let Some(sp) = joined::source_point(target, next_jp)
+                                        && sp.row == row_idx
+                                        && !page.columns[sp.column].is_binary()
+                                        && !cell_has_newline(&page.rows[row_idx].cells[sp.column])
+                                    {
+                                        draft.switch_inline_column(page, sp.column, Some(next_jp));
+                                        break;
+                                    }
+                                }
+                            }
+                        } else if draft.step_inline_column(page, forward)
+                            && let (Some(row), Some(column)) = (draft.row, draft.inline_column)
+                        {
+                            editor.grid.focus_form_point(page, Point { row, column });
+                        }
+                    }
+                }
+                GridAction::OpenJoined(Point { row, column }, joined_point) => {
+                    editor.grid.focus_form_point(page, Point { row, column });
                     let field = &page.columns[column];
                     let cell = &page.rows[row].cells[column];
-                    if inspectable(field) {
+                    if editable && field.writable && !field.is_binary() && !cell_has_newline(cell) {
+                        editor.draft =
+                            Some(Draft::new_inline(page, row, column, None, Some(joined_point)));
+                        editor.error = None;
+                        editor.notice = None;
+                    } else if inspectable(field) {
                         let dialog = if editable && field.writable {
                             Inspector::edit(
                                 page.column_label(column).to_owned(),
@@ -1987,6 +2642,37 @@ fn present(
                         };
                         editor.inspection = Some((Some(row), column, dialog));
                     } else if editable {
+                        editor.draft = Some(Draft::new(page, Some(row), Some(column)));
+                    }
+                }
+                GridAction::Open(Point { row, column }) => {
+                    if in_form || full_join.is_some() {
+                        editor.grid.focus_form_point(page, Point { row, column });
+                    }
+                    let field = &page.columns[column];
+                    let cell = &page.rows[row].cells[column];
+                    if !in_form
+                        && editable
+                        && field.writable
+                        && !field.is_binary()
+                        && !cell_has_newline(cell)
+                    {
+                        editor.draft = Some(Draft::new_inline(page, row, column, None, None));
+                        editor.error = None;
+                        editor.notice = None;
+                    } else if inspectable(field) {
+                        let dialog = if editable && field.writable {
+                            Inspector::edit(
+                                page.column_label(column).to_owned(),
+                                cell,
+                                field.is_binary(),
+                                field.nullable,
+                            )
+                        } else {
+                            Inspector::read(page.column_label(column).to_owned(), cell)
+                        };
+                        editor.inspection = Some((Some(row), column, dialog));
+                    } else if editable && field.writable {
                         editor.draft = Some(Draft::new(page, Some(row), Some(column)));
                     }
                 }
@@ -2037,7 +2723,9 @@ fn present(
         if let Some(prompt) = &editor.duplicate_prompt {
             (duplicate_choice, cancel_duplicates) =
                 confirm_duplicate_rows(ui, prompt, connected && !waiting);
-        } else if let Some(draft) = &mut editor.draft {
+        } else if let Some(draft) = &mut editor.draft
+            && !draft.is_inline()
+        {
             let height = if let Some(available) = dock_available(ui) {
                 (available - ui.spacing().interact_size.y - 16.0).max(34.0)
             } else if in_form {
@@ -2166,8 +2854,8 @@ fn present(
         editor.delete_rows(workspace, originals);
     } else if let Some(edit) = write {
         editor.write(workspace, edit, None);
-    } else if let Some((row, column, text)) = draft_start {
-        editor.begin_grid_draft(row, column, text);
+    } else if let Some((row, column, text, joined_point)) = draft_start {
+        editor.begin_grid_draft_at(row, column, text, joined_point);
     } else if let Some(target) = row_move {
         editor.move_to(workspace, target);
     }
@@ -2364,20 +3052,31 @@ impl DataGrid {
 
     fn copy_controls(&self, ui: &mut egui::Ui, page: &TablePage, headers: bool) {
         let selection = self.selection.current();
-        ui.add_enabled_ui(!page.rows.is_empty(), |ui| {
-            ui.menu_button("复制", |ui| {
+        style::icon_menu_button(
+            ui,
+            style::ToolbarIcon::Copy,
+            !page.rows.is_empty(),
+            "复制（选择范围与格式）",
+            |ui| {
                 copy_menu(ui, page, selection, selection.map(|s| s.head), headers);
-            });
-        });
+            },
+        );
         if let Some(selection) = selection {
             ui.label(
                 RichText::new(format!(
-                    "选中 {} 行 × {} 列",
+                    "{}×{}",
                     selection.rows().len(),
                     selection.columns(page.columns.len()).len()
                 ))
-                .color(style::MUTED),
-            );
+                .small()
+                .monospace()
+                .color(style::muted()),
+            )
+            .on_hover_text(format!(
+                "已选中 {} 行 × {} 列",
+                selection.rows().len(),
+                selection.columns(page.columns.len()).len()
+            ));
         }
     }
 
@@ -2448,6 +3147,7 @@ impl DataGrid {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -2455,6 +3155,9 @@ impl DataGrid {
         interactive: bool,
         moving_draft: bool,
         editable: bool,
+        read_only_tint: bool,
+        has_previous_page: bool,
+        draft: &mut Option<Draft>,
         height: f32,
         server_tools: Option<&TableSelection>,
         headers: bool,
@@ -2619,7 +3322,7 @@ impl DataGrid {
                             header.col(|ui| {
                                 ui.add(
                                     egui::Label::new(
-                                        RichText::new("勾选").small().color(style::MUTED),
+                                        RichText::new("勾选").small().color(style::muted()),
                                     )
                                     .selectable(false),
                                 )
@@ -2627,7 +3330,7 @@ impl DataGrid {
                             });
                         }
                         let (_, gutter) = header.col(|ui| {
-                            grid_label(ui, RichText::new("行号").color(style::MUTED), true);
+                            grid_label(ui, RichText::new("行号").color(style::muted()), true);
                         });
                         if interactive && !page.rows.is_empty() {
                             select_all = gutter.on_hover_text("全选当前页").clicked();
@@ -2652,9 +3355,9 @@ impl DataGrid {
                                 let name = if let Some((rank, sort)) = ordered {
                                     let arrow = if sort.descending { "↓" } else { "↑" };
                                     RichText::new(format!("{label} {arrow}{}", rank + 1))
-                                        .color(style::ACCENT)
+                                        .color(style::accent())
                                 } else {
-                                    RichText::new(label).color(style::INK)
+                                    RichText::new(label).color(style::ink())
                                 };
                                 grid_label(ui, name.strong(), numeric_columns[index]);
                             });
@@ -2709,7 +3412,7 @@ impl DataGrid {
                                     row.col(|ui| {
                                         grid_label(
                                             ui,
-                                            RichText::new("＋ 新增").color(style::ACCENT),
+                                            RichText::new("＋ 新增").color(style::accent()),
                                             true,
                                         );
                                     });
@@ -2768,9 +3471,9 @@ impl DataGrid {
                                         RichText::new((page.offset + index + 1).to_string())
                                             .monospace()
                                             .color(if row_selected {
-                                                style::ACCENT
+                                                style::accent()
                                             } else {
-                                                style::MUTED
+                                                style::muted()
                                             }),
                                         true,
                                     );
@@ -2809,14 +3512,117 @@ impl DataGrid {
                                 }
                                 for (column, cell) in page.rows[index].cells.iter().enumerate() {
                                     let point = Point { row: index, column };
+                                    let is_inline_cell = draft.as_ref().is_some_and(|d| {
+                                        d.row == Some(index) && d.inline_column == Some(column)
+                                    });
                                     row.set_selected(
-                                        selection.is_some_and(|area| area.contains(point)),
+                                        !is_inline_cell
+                                            && selection
+                                                .is_some_and(|area| area.contains(point)),
                                     );
                                     let (_, response) = row.col(|ui| {
-                                        let current = selection.is_some_and(|area| {
-                                            !area.whole_rows && area.head == point
-                                        });
-                                        grid_cell(ui, cell, numeric_columns[column], current);
+                                        if is_inline_cell
+                                            && let Some(active_draft) = draft.as_mut()
+                                        {
+                                            let edit_id = ui.make_persistent_id((
+                                                "data-inline-edit",
+                                                self.id,
+                                                index,
+                                                column,
+                                            ));
+                                            let mut request_focus =
+                                                active_draft.focus.take() == Some(column);
+                                            let select_all = active_draft.inline_select_all;
+                                            let focus_at_end =
+                                                std::mem::take(&mut active_draft.focus_at_end);
+                                            let was_null = active_draft.fields[column].mode
+                                                == Mode::Keep
+                                                && matches!(cell, Cell::Null);
+                                            let (changed, key) = render_inline_cell_editor(
+                                                ui,
+                                                edit_id,
+                                                &mut active_draft.fields[column].text,
+                                                was_null,
+                                                &mut request_focus,
+                                                select_all,
+                                                focus_at_end,
+                                            );
+                                            if changed {
+                                                active_draft.fields[column].mode = Mode::Text;
+                                            }
+                                            if let Some(key) = key {
+                                                action = Some(match key {
+                                                    InlineKey::Up => {
+                                                        if index > 0 {
+                                                            GridAction::Focus(Point {
+                                                                row: index - 1,
+                                                                column,
+                                                            })
+                                                        } else if has_previous_page {
+                                                            GridAction::Navigate(Navigate::Previous)
+                                                        } else {
+                                                            GridAction::InlineCommit
+                                                        }
+                                                    }
+                                                    InlineKey::Down => {
+                                                        if index + 1 < page.rows.len() {
+                                                            GridAction::Focus(Point {
+                                                                row: index + 1,
+                                                                column,
+                                                            })
+                                                        } else if page.has_more {
+                                                            GridAction::Navigate(Navigate::Next(
+                                                                page.offset + page.rows.len(),
+                                                            ))
+                                                        } else {
+                                                            GridAction::InlineCommit
+                                                        }
+                                                    }
+                                                    InlineKey::Commit => GridAction::InlineCommit,
+                                                    InlineKey::Cancel => GridAction::InlineCancel,
+                                                    InlineKey::TabNext => {
+                                                        GridAction::InlineStepColumn {
+                                                            forward: true,
+                                                        }
+                                                    }
+                                                    InlineKey::TabPrev => {
+                                                        GridAction::InlineStepColumn {
+                                                            forward: false,
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                        } else {
+                                            let current = selection.is_some_and(|area| {
+                                                !area.whole_rows && area.head == point
+                                            });
+                                            let modified_preview = draft
+                                                .as_ref()
+                                                .filter(|d| d.is_inline() && d.row == Some(index))
+                                                .and_then(|d| d.modified_preview(page, column));
+                                            if let Some(preview) = &modified_preview {
+                                                let preview_cell = Cell::Text(preview.clone());
+                                                grid_cell_styled(
+                                                    ui,
+                                                    &preview_cell,
+                                                    numeric_columns[column],
+                                                    current,
+                                                    false,
+                                                    true,
+                                                );
+                                            } else {
+                                                let cell_read_only = read_only_tint
+                                                    || !page.columns[column].writable;
+                                                grid_cell_styled(
+                                                    ui,
+                                                    cell,
+                                                    numeric_columns[column],
+                                                    current,
+                                                    cell_read_only,
+                                                    false,
+                                                );
+                                            }
+                                        }
                                         if scroll_to == Some(point) {
                                             ui.scroll_to_cursor(None);
                                             did_scroll = true;
@@ -2843,8 +3649,23 @@ impl DataGrid {
                                             row_header: false,
                                         },
                                     );
-                                    if let Some(movement) = draft_click(&response, point) {
-                                        action = Some(movement);
+                                    if !is_inline_cell {
+                                        if let Some(active_draft) = draft.as_ref()
+                                            && active_draft.is_inline()
+                                            && active_draft.row == Some(index)
+                                            && page.columns[column].writable
+                                            && !page.columns[column].is_binary()
+                                            && !cell_has_newline(cell)
+                                            && response.clicked_by(egui::PointerButton::Primary)
+                                        {
+                                            action = Some(GridAction::InlineSwitchCell {
+                                                column,
+                                                joined_point: None,
+                                            });
+                                        } else if let Some(movement) = draft_click(&response, point)
+                                        {
+                                            action = Some(movement);
+                                        }
                                     }
                                     if interactive && response.double_clicked() {
                                         action = Some(GridAction::Open(point));
@@ -2934,7 +3755,7 @@ impl DataGrid {
             let clicked = clicked_entry.filter(|(cell, _)| {
                 Some(*cell) == selected
                     || (cell.row.is_none() && matches!(&action,
-                        Some(GridAction::BeginDraft { row: None, column, text: None }) if *column == cell.column
+                        Some(GridAction::BeginDraft { row: None, column, text: None, .. }) if *column == cell.column
                     ))
             });
             let visible =
@@ -3022,7 +3843,7 @@ fn copy_menu(
     ui.label(
         RichText::new("NULL 用 \\N，二进制用 \\x 加十六进制")
             .small()
-            .color(style::MUTED),
+            .color(style::muted()),
     );
     let targets = [
         ("复制单元格", point.map(CopyTarget::Cell)),
@@ -3137,11 +3958,11 @@ fn confirm_delete(
         !deletion.rows().is_empty() && deletion.rows().iter().all(|&row| row < page.rows.len());
     style::pane(egui::Margin::symmetric(9, 6))
         .corner_radius(7.0)
-        .stroke(egui::Stroke::new(1.0_f32, style::BORDER))
+        .stroke(egui::Stroke::new(1.0_f32, style::border()))
         .show(ui, |ui| {
             let (confirm, cancel) = ui
                 .horizontal_wrapped(|ui| {
-                    ui.label(RichText::new(label).strong().color(style::ERROR));
+                    ui.label(RichText::new(label).strong().color(style::error()));
                     ui.separator();
                     let cancel = ui.add_enabled(!waiting, Button::new("取消")).clicked();
                     let confirm = ui
@@ -3161,7 +3982,7 @@ fn confirm_delete(
                             display_cell(&record.cells[index], true)
                         );
                         ui.add(
-                            egui::Label::new(RichText::new(key).monospace().color(style::MUTED))
+                            egui::Label::new(RichText::new(key).monospace().color(style::muted()))
                                 .truncate(),
                         );
                     }
@@ -3173,8 +3994,8 @@ fn confirm_delete(
 }
 
 fn delete_button(label: &str) -> Button<'_> {
-    Button::new(RichText::new(label).strong().color(style::SURFACE))
-        .fill(style::ERROR)
+    Button::new(RichText::new(label).strong().color(style::surface()))
+        .fill(style::error())
         .stroke(egui::Stroke::NONE)
 }
 
@@ -3187,14 +4008,14 @@ fn confirm_duplicate_rows(
     let verb = if deleting { "删除" } else { "修改" };
     style::pane(egui::Margin::symmetric(9, 6))
         .corner_radius(7.0)
-        .stroke(egui::Stroke::new(1.0_f32, style::BORDER))
+        .stroke(egui::Stroke::new(1.0_f32, style::border()))
         .show(ui, |ui| {
             ui.label(
                 RichText::new(format!(
                     "有 {} 行与所选行的全部原值相同。请选择{verb}范围。",
                     prompt.matches
                 ))
-                .color(style::WARNING),
+                .color(style::warning()),
             );
             ui.horizontal_wrapped(|ui| {
                 let cancel = ui.button("取消").clicked()
@@ -3392,6 +4213,9 @@ struct Draft {
     focus: Option<usize>,
     focus_at_end: bool,
     preview_sql: bool,
+    inline_column: Option<usize>,
+    inline_select_all: bool,
+    inline_joined_point: Option<Point>,
 }
 
 impl Draft {
@@ -3435,7 +4259,106 @@ impl Draft {
             focus,
             focus_at_end: false,
             preview_sql: false,
+            inline_column: None,
+            inline_select_all: false,
+            inline_joined_point: None,
         }
+    }
+
+    fn new_inline(
+        page: &TablePage,
+        row: usize,
+        column: usize,
+        typed: Option<String>,
+        joined_point: Option<Point>,
+    ) -> Self {
+        let mut draft = Self::new(page, Some(row), Some(column));
+        draft.inline_column = Some(column);
+        draft.inline_joined_point = joined_point;
+        if let Some(text) = typed {
+            draft.fields[column].set_cell(Cell::Text(text));
+            draft.focus_at_end = true;
+            draft.inline_select_all = false;
+        } else {
+            draft.inline_select_all = true;
+        }
+        draft
+    }
+
+    fn is_inline(&self) -> bool {
+        self.inline_column.is_some()
+    }
+
+    fn has_changes(&self, page: &TablePage) -> bool {
+        let original = self.row.map(|index| &page.rows[index]);
+        original.is_none_or(|row| {
+            self.fields
+                .iter()
+                .zip(&row.cells)
+                .any(|(field, cell)| field.changed(Some(cell)))
+        })
+    }
+
+    fn modified_preview(&self, page: &TablePage, column: usize) -> Option<String> {
+        let row_index = self.row?;
+        let original = page.rows.get(row_index)?.cells.get(column)?;
+        let field = self.fields.get(column)?;
+        if !field.changed(Some(original)) {
+            return None;
+        }
+        Some(match field.mode {
+            Mode::Null => "NULL".to_owned(),
+            Mode::Default => "DEFAULT".to_owned(),
+            Mode::Text => field.text.clone(),
+            Mode::Keep => return None,
+        })
+    }
+
+    fn switch_inline_column(
+        &mut self,
+        page: &TablePage,
+        column: usize,
+        joined_point: Option<Point>,
+    ) {
+        if let Some(row_index) = self.row
+            && let Some(field) = self.fields.get_mut(column)
+            && field.mode == Mode::Keep
+            && !matches!(page.rows[row_index].cells[column], Cell::Null)
+        {
+            field.mode = Mode::Text;
+        }
+        self.inline_column = Some(column);
+        self.inline_joined_point = joined_point;
+        self.focus = Some(column);
+        self.inline_select_all = true;
+        self.focus_at_end = false;
+    }
+
+    fn step_inline_column(&mut self, page: &TablePage, forward: bool) -> bool {
+        let (Some(row_index), Some(current)) = (self.row, self.inline_column) else {
+            return false;
+        };
+        let count = page.columns.len();
+        if count <= 1 {
+            return false;
+        }
+        let mut candidate = current;
+        for _ in 0..count {
+            candidate = if forward {
+                (candidate + 1) % count
+            } else {
+                (candidate + count - 1) % count
+            };
+            let field = &page.columns[candidate];
+            if field.writable
+                && !field.is_binary()
+                && !cell_has_newline(&page.rows[row_index].cells[candidate])
+            {
+                self.switch_inline_column(page, candidate, None);
+                return true;
+            }
+        }
+        false
     }
 
     fn duplicate(page: &TablePage, index: usize) -> Result<Self, String> {
@@ -3476,6 +4399,9 @@ impl Draft {
                 .position(|column| column.writable && !column.auto_increment),
             focus_at_end: false,
             preview_sql: false,
+            inline_column: None,
+            inline_select_all: false,
+            inline_joined_point: None,
         })
     }
 
@@ -3534,11 +4460,11 @@ impl Draft {
         self.preview_sql &= has_changes;
         let (save, cancel) = style::pane(egui::Margin::symmetric(9, 5))
             .corner_radius(7.0)
-            .stroke(egui::Stroke::new(1.0_f32, style::BORDER))
+            .stroke(egui::Stroke::new(1.0_f32, style::border()))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new(title).strong().color(style::ACCENT));
+                    ui.label(RichText::new(title).strong().color(style::accent()));
                     ui.separator();
                     let cancel = ui.add_enabled(!waiting, Button::new("取消")).clicked();
                     let save = ui
@@ -3621,7 +4547,7 @@ impl Draft {
                         .show(ui, |ui| {
                             ui.add(
                                 egui::TextEdit::multiline(&mut sql)
-                                    .background_color(style::PANEL)
+                                    .background_color(style::panel())
                                     .font(egui::TextStyle::Monospace)
                                     .desired_rows(2)
                                     .desired_width(f32::INFINITY),
@@ -3629,12 +4555,16 @@ impl Draft {
                         });
                 }
                 Err(error) => {
-                    ui.colored_label(style::ERROR, error);
+                    ui.colored_label(style::error(), error);
                 }
             }
         }
         (save.then(|| self.edit(page)), cancel, inspect)
     }
+}
+
+fn cell_has_newline(cell: &Cell) -> bool {
+    matches!(cell, Cell::Text(text) if text.contains(['\n', '\r']))
 }
 
 fn allows_default(column: &TableColumn) -> bool {
@@ -3701,7 +4631,7 @@ fn field_row(
     let label = ui
         .add_sized(
             [132.0, 25.0],
-            egui::Label::new(RichText::new(title).color(style::INK))
+            egui::Label::new(RichText::new(title).color(style::ink()))
                 .truncate()
                 .sense(Sense::click()),
         )
@@ -3731,7 +4661,7 @@ fn field_row(
                 }
             });
     } else {
-        ui.label(RichText::new("只读").color(style::MUTED));
+        ui.label(RichText::new("只读").color(style::muted()));
     }
     if let (Mode::Text, Some(binary)) = (field.mode, &field.binary) {
         ui.label(format!("二进制数据 · {} 字节", binary.len()));

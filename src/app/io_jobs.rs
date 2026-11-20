@@ -48,31 +48,25 @@ pub(super) fn form_section<R>(
     title: &str,
     content: impl FnOnce(&mut egui::Ui) -> R,
 ) -> R {
-    style::pane(egui::Margin::same(12))
-        .stroke(egui::Stroke::new(1.0_f32, style::BORDER))
-        .corner_radius(egui::CornerRadius::same(10))
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.strong(title);
-            content(ui)
-        })
-        .inner
+    let result = style::section_card(ui, title, content);
+    ui.add_space(6.0);
+    result
 }
 
 fn transfer_progress(ui: &mut egui::Ui, status: &str, fraction: f32, color: egui::Color32) {
     right_aligned_row(ui, |ui| {
-        ui.label(RichText::new(format!("{}%", (fraction * 100.0) as u32)).color(style::MUTED));
+        ui.label(RichText::new(format!("{}%", (fraction * 100.0) as u32)).color(style::muted()));
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
             ui.add(egui::Label::new(RichText::new(status).color(color)).truncate())
                 .on_hover_text(status);
         });
     });
     ui.scope(|ui| {
-        ui.visuals_mut().extreme_bg_color = style::BORDER;
+        ui.visuals_mut().extreme_bg_color = style::border();
         let fill = if fraction == 0.0 {
-            style::BORDER
-        } else if color == style::INK || color == style::MUTED {
-            style::ACCENT
+            style::border()
+        } else if color == style::ink() || color == style::muted() {
+            style::accent()
         } else {
             color
         };
@@ -325,7 +319,7 @@ impl BackupForm {
                 }
             });
         ui.horizontal_wrapped(|ui| {
-            ui.visuals_mut().selection.bg_fill = style::ACCENT_SOFT;
+            ui.visuals_mut().selection.bg_fill = style::accent_soft();
             ui.selectable_value(&mut self.mode, DumpMode::Structure, "仅结构");
             ui.selectable_value(&mut self.mode, DumpMode::Data, "仅数据");
             ui.selectable_value(&mut self.mode, DumpMode::StructureAndData, "结构和数据");
@@ -377,20 +371,20 @@ impl BackupForm {
         form_section(ui, "导出对象", |ui| {
             let Some(available) = ws.objects.get(&self.schema) else {
                 if ws.server.is_none() {
-                    ui.colored_label(style::MUTED, "请先连接数据库。");
+                    ui.colored_label(style::muted(), "请先连接数据库。");
                 } else if self.schema.is_empty() {
-                    ui.colored_label(style::MUTED, "请选择数据库。");
+                    ui.colored_label(style::muted(), "请选择数据库。");
                 } else if let Some(error) = self.catalog_errors.get(&self.schema) {
-                    ui.colored_label(style::ERROR, error);
+                    ui.colored_label(style::error(), error);
                     if ui.button("重新读取").clicked() {
                         self.catalog_errors.remove(&self.schema);
                         ui.ctx().request_repaint();
                     }
                 } else if ws.busy() && self.catalog_request.as_deref() != Some(self.schema.as_str())
                 {
-                    ui.colored_label(style::MUTED, "等待当前连接任务完成…");
+                    ui.colored_label(style::muted(), "等待当前连接任务完成…");
                 } else {
-                    ui.colored_label(style::MUTED, "正在读取导出对象…");
+                    ui.colored_label(style::muted(), "正在读取导出对象…");
                 }
                 return;
             };
@@ -405,7 +399,7 @@ impl BackupForm {
             ui.label(
                 RichText::new(format!("已选 {chosen} / {total}"))
                     .small()
-                    .color(style::MUTED),
+                    .color(style::muted()),
             );
             ui.separator();
             egui::ScrollArea::vertical()
@@ -463,7 +457,7 @@ impl BackupForm {
         });
         if http_tunnel {
             ui.colored_label(
-                style::MUTED,
+                style::muted(),
                 format!("HTTP 隧道每批最多读取 {MAX_HTTP_DUMP_CHUNK_ROWS} 行。备份期间请保持源表数据和结构稳定。"),
             );
             ui.checkbox(&mut self.settings.flush_logs, "读取前刷新日志")
@@ -597,9 +591,9 @@ impl BackupForm {
             });
         let (fraction, status, color) = match &self.run {
             DumpRun::Ready if ws.busy() && self.catalog_request.is_none() => {
-                (0.0, "当前连接正在执行其他任务。".into(), style::MUTED)
+                (0.0, "当前连接正在执行其他任务。".into(), style::muted())
             }
-            DumpRun::Ready => (0.0, "等待导出".into(), style::MUTED),
+            DumpRun::Ready => (0.0, "等待导出".into(), style::muted()),
             DumpRun::Running { cancelling } => {
                 let status = if *cancelling {
                     "正在取消导出…".into()
@@ -620,7 +614,7 @@ impl BackupForm {
                 } else {
                     "正在准备导出…".into()
                 };
-                (fraction, status, style::INK)
+                (fraction, status, style::ink())
             }
             DumpRun::Finished(Ok(summary)) => (
                 1.0,
@@ -634,12 +628,12 @@ impl BackupForm {
                     }
                     status
                 },
-                style::SUCCESS,
+                style::success(),
             ),
             DumpRun::Finished(Err(error)) if error == "已取消 SQL 转储。" => {
-                (fraction, error.clone(), style::MUTED)
+                (fraction, error.clone(), style::muted())
             }
-            DumpRun::Finished(Err(error)) => (fraction, format!("导出失败。{error}"), style::ERROR),
+            DumpRun::Finished(Err(error)) => (fraction, format!("导出失败。{error}"), style::error()),
         };
         transfer_progress(ui, &status, fraction, color);
     }
@@ -748,7 +742,7 @@ impl BackupForm {
                     self.show_progress(ui, ws);
                     if let Some(error) = &self.preferences_error {
                         ui.add(
-                            egui::Label::new(RichText::new(error).color(style::ERROR)).truncate(),
+                            egui::Label::new(RichText::new(error).color(style::error())).truncate(),
                         )
                         .on_hover_text(error);
                     }
@@ -778,7 +772,7 @@ impl BackupForm {
                             let export = if completed {
                                 egui::Button::new("导出")
                             } else {
-                                style::primary("导出")
+                                style::primary_enabled(can_start, "导出")
                             };
                             if ui.add_enabled(can_start, export).clicked() {
                                 start_path = path;
