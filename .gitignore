@@ -1,0 +1,8 @@
+/target
+/dist
+
+# 本机验收与反向核对记录
+/COMPATIBILITY.md
+/PARITY-AUDIT.md
+/未完成功能清单.md
+/已实现待验收清单.md
