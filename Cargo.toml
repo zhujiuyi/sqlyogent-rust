@@ -1,6 +1,6 @@
 [package]
 name = "harbor-sql"
-version = "0.40.0"
+version = "0.1.0"
 edition = "2024"
 default-run = "harbor-sql"
 description = "A native MySQL and MariaDB workspace"

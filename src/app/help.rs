@@ -239,7 +239,7 @@ fn about(ui: &mut Ui) {
         ui.horizontal(|ui| {
             style::badge(
                 ui,
-                format!("v{}", env!("CARGO_PKG_VERSION")),
+                format!("V{}", env!("CARGO_PKG_VERSION")),
                 style::accent(),
                 style::accent_soft(),
             );
