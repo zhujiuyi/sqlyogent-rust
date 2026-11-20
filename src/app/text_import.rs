@@ -741,7 +741,7 @@ fn local_report(ui: &mut egui::Ui, report: &LoadLocalReport, warnings_open: &mut
 fn local_warnings_dialog(ctx: &egui::Context, report: &LoadLocalReport) -> bool {
     let modal = style::modal(ctx, egui::Id::new("text-import-warnings")).show(ctx, |ui| {
         ui.set_width(form_width(ctx, 560.0));
-        ui.heading("导入警告");
+        style::page_title(ui, "导入警告");
         if !report.warnings.is_empty() && report.warning_count > report.warnings.len() as u64 {
             ui.small(format!("显示其中 {} 条警告。", report.warnings.len()));
         }
@@ -819,7 +819,7 @@ pub(crate) fn import_dialog(
     let mut cancel = false;
     let modal = style::modal(ctx, egui::Id::new("import-dialog")).show(ctx, |ui| {
         ui.set_width(form_width(ctx, 620.0));
-        ui.heading("导入文本文件");
+        style::page_title(ui, "导入文本文件");
         let destination = format!("目标表 · {}.{}", import.object.schema, import.object.name);
         ui.add(egui::Label::new(egui::RichText::new(&destination).color(style::muted())).truncate())
             .on_hover_text(destination);

@@ -137,19 +137,19 @@ pub(super) fn schema_menu(ui: &mut egui::Ui, schema: &str, action: &mut Option<B
         }
     });
     ui.menu_button("其他数据库操作", |ui| {
-        item(ui, "截断数据库中的表…", action, || {
+        danger_item(ui, "截断数据库中的表…", action, || {
             BrowseAction::Manage(Operation::DatabaseContents {
                 schema: schema.into(),
                 action: DatabaseContentsAction::Truncate,
             })
         });
-        item(ui, "清空数据库…", action, || {
+        danger_item(ui, "清空数据库…", action, || {
             BrowseAction::Manage(Operation::DatabaseContents {
                 schema: schema.into(),
                 action: DatabaseContentsAction::Drop,
             })
         });
-        item(ui, "删除数据库…", action, || {
+        danger_item(ui, "删除数据库…", action, || {
             BrowseAction::Script(drop_database(schema))
         });
     });
@@ -277,7 +277,7 @@ pub(super) fn object_menu(ui: &mut egui::Ui, object: &DbObject, action: &mut Opt
                 BrowseAction::RunSql(table_status_sql(object))
             });
             for table_action in [TableAction::Truncate, TableAction::Drop] {
-                item(ui, table_action.label(), action, || {
+                danger_item(ui, table_action.label(), action, || {
                     BrowseAction::Script(table_action.sql(&object.schema, &object.name))
                 });
             }
@@ -351,7 +351,7 @@ pub(super) fn object_menu(ui: &mut egui::Ui, object: &DbObject, action: &mut Opt
                 BrowseAction::ExportPreview(object.clone())
             });
         }
-        item(ui, drop_label(object.kind), action, || {
+        danger_item(ui, drop_label(object.kind), action, || {
             BrowseAction::Script(drop_object(object))
         });
     }
@@ -369,6 +369,18 @@ fn item(
     next: impl FnOnce() -> BrowseAction,
 ) {
     if ui.button(label).clicked() {
+        *action = Some(next());
+        ui.close();
+    }
+}
+
+fn danger_item(
+    ui: &mut egui::Ui,
+    label: &str,
+    action: &mut Option<BrowseAction>,
+    next: impl FnOnce() -> BrowseAction,
+) {
+    if style::menu_item_danger(ui, label).clicked() {
         *action = Some(next());
         ui.close();
     }
@@ -566,7 +578,7 @@ pub(super) fn dialog(ctx: &egui::Context, plan: &mut Option<Plan>, workspaces: &
     let modal = crate::app::style::modal(ctx, egui::Id::new("object-action")).show(ctx, |ui| {
         ui.set_width((ctx.content_rect().width() - 64.0).clamp(400.0, 560.0));
         ui.horizontal(|ui| {
-            ui.heading(heading(&form.op));
+            style::page_title(ui, heading(&form.op));
             if let Some(object) = target(&form.op) {
                 ui.add_space(6.0);
                 style::badge(

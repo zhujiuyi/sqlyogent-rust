@@ -1411,7 +1411,7 @@ fn present(
         };
         if !docked {
             ui.horizontal(|ui| {
-                ui.heading(if editor.query.is_some() {
+                style::page_title(ui, if editor.query.is_some() {
                     "编辑查询结果"
                 } else {
                     "编辑表数据"
@@ -3373,6 +3373,7 @@ impl DataGrid {
                             let response = response.on_hover_text(tooltip);
                             if server_tools.is_some() {
                                 response.context_menu(|ui| {
+                                    style::context_menu_ui(ui);
                                     for (label, descending, append) in [
                                         ("全表升序", false, false),
                                         ("全表降序", true, false),
@@ -3499,6 +3500,7 @@ impl DataGrid {
                                 );
                                 if interactive {
                                     gutter.context_menu(|ui| {
+                                        style::context_menu_ui(ui);
                                         if ui.button("导出全部已读取行…").clicked() {
                                             action = Some(GridAction::Export);
                                             ui.close();
@@ -3672,6 +3674,7 @@ impl DataGrid {
                                     }
                                     if interactive {
                                         response.context_menu(|ui| {
+                                            style::context_menu_ui(ui);
                                             if ui.button("导出全部已读取行…").clicked() {
                                                 action = Some(GridAction::Export);
                                                 ui.close();
@@ -4640,6 +4643,7 @@ fn field_row(
         label.scroll_to_me(Some(Align::Center));
     }
     label.context_menu(|ui| {
+        style::context_menu_ui(ui);
         if let Some(preset) = preset_menu(ui, column) {
             field.apply_preset(preset, column);
         }

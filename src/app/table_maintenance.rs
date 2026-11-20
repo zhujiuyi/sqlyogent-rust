@@ -236,7 +236,7 @@ pub(super) fn dialog(
             let width = (size.x - 64.0).clamp(400.0, 700.0);
             ui.set_width(width);
             ui.horizontal(|ui| {
-                ui.heading("表诊断");
+                style::page_title(ui, "表诊断");
                 ui.add_space(6.0);
                 style::badge(ui, &ws.label, style::muted(), style::chrome());
             });

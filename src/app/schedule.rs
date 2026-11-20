@@ -129,7 +129,7 @@ impl Schedule {
         crate::app::style::modal(ctx, egui::Id::new("backup-schedule")).show(ctx, |ui| {
             let width = (ctx.content_rect().width() - 48.0).clamp(400.0, 680.0);
             ui.set_width(width);
-            ui.heading("连接内间隔备份");
+            style::page_title(ui, "连接内间隔备份");
             ui.label(
                 RichText::new("备份在应用打开并保持连接时按设定间隔自动运行。")
                     .small()

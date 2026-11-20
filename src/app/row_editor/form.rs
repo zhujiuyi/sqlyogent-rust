@@ -83,6 +83,7 @@ pub(super) fn show(
                                 }
                             }
                             response.context_menu(|ui| {
+                                style::context_menu_ui(ui);
                                 if ui.button("复制单元格").clicked() {
                                     ui.ctx().copy_text(cell_text(cell));
                                     ui.close();
@@ -106,7 +107,7 @@ pub(super) fn show(
                                         action = Some(GridAction::Duplicate(current.row));
                                         ui.close();
                                     }
-                                    if ui.button("删除当前行…").clicked() {
+                                    if style::menu_item_danger(ui, "删除当前行…").clicked() {
                                         action = Some(GridAction::Delete(current.row));
                                         ui.close();
                                     }

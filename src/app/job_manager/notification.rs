@@ -110,22 +110,22 @@ impl Editor {
         let response =
             crate::app::style::modal(ctx, egui::Id::new("sql-job-editor")).show(ctx, |ui| {
                 ui.set_width((bounds.width() - 48.0).clamp(400.0, 700.0));
-                ui.heading(if self.form.source.is_some() {
+                style::page_title(ui, if self.form.source.is_some() {
                     "编辑 SQL 作业"
                 } else {
                     "新建 SQL 作业"
                 });
-                ui.horizontal_wrapped(|ui| {
-                    for (page, label) in [
+                style::page_tabs(
+                    ui,
+                    &mut self.page,
+                    &[
                         (Page::Connection, "连接"),
                         (Page::Sql, "SQL 与报告"),
                         (Page::Mail, "邮件通知"),
                         (Page::Run, "保存与运行"),
-                    ] {
-                        ui.selectable_value(&mut self.page, page, label);
-                    }
-                });
-                ui.separator();
+                    ],
+                );
+                ui.add_space(8.0);
                 let idle = self.pending.is_none();
                 egui::ScrollArea::vertical()
                     .id_salt(("sql-job-edit", self.page))

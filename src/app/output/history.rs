@@ -481,12 +481,13 @@ pub(super) fn panel(
                             ),
                         };
                         response.context_menu(|ui| {
+                            style::context_menu_ui(ui);
                             if entry.content.sql().is_some() && ui.button("复制本条 SQL").clicked()
                             {
                                 action = Some(Action::Copy(Scope::Entry(entry.id)));
                                 ui.close();
                             }
-                            if ui.button("删除本条记录…").clicked() {
+                            if style::menu_item_danger(ui, "删除本条记录…").clicked() {
                                 action = Some(Action::Remove(Scope::Entry(entry.id)));
                                 ui.close();
                             }

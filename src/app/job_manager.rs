@@ -284,7 +284,7 @@ impl Manager {
             ui.set_max_height(height);
             let mut action = None;
             ui.horizontal(|ui| {
-                ui.heading("作业管理");
+                style::page_title(ui, "作业管理");
                 ui.add_space(6.0);
                 style::badge(
                     ui,

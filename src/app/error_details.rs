@@ -1,4 +1,4 @@
-use eframe::egui::{self, Align, Layout, RichText, TextEdit};
+use eframe::egui::{self, TextEdit};
 
 use super::{state::write_atomic, style};
 
@@ -41,7 +41,7 @@ pub(super) fn dialog(ctx: &egui::Context, state: &mut Option<Box<ErrorDetails>>)
         let size = ctx.content_rect().size();
         ui.set_width((size.x - 60.0).clamp(320.0, 750.0));
         ui.horizontal(|ui| {
-            ui.heading("数据库错误详情");
+            style::page_title(ui, "数据库错误详情");
             if let Some(code) = detail.code {
                 style::badge(
                     ui,
@@ -51,41 +51,40 @@ pub(super) fn dialog(ctx: &egui::Context, state: &mut Option<Box<ErrorDetails>>)
                 );
             }
         });
-        ui.add_space(4.0);
-        ui.separator();
-        ui.add_space(4.0);
-        ui.label(RichText::new("服务器消息").strong().color(style::error()));
-        detail_text(ui, "server-message", &detail.message, size.y * 0.21);
+        ui.add_space(6.0);
+        style::section_card(ui, "服务器消息", |ui| {
+            detail_text(ui, "server-message", &detail.message, size.y * 0.21);
+        });
         if !detail.sql.is_empty() {
             ui.add_space(6.0);
-            ui.label(RichText::new("执行的 SQL").strong().color(style::ink()));
-            detail_text(ui, "failed-statement", &detail.sql, size.y * 0.30);
+            style::section_card(ui, "执行的 SQL", |ui| {
+                detail_text(ui, "failed-statement", &detail.sql, size.y * 0.30);
+            });
         }
         if let Some(error) = &detail.save_error {
             style::banner(ui, error, style::error(), style::error_soft());
         }
-        ui.separator();
-        ui.horizontal(|ui| {
-            if ui.button("复制详情").clicked() {
-                ctx.copy_text(detail.document());
-            }
-            if ui.button("另存错误详情…").clicked()
-                && let Some(path) = rfd::FileDialog::new()
-                    .set_title("另存错误详情")
-                    .add_filter("文本文件", &["txt"])
-                    .set_file_name("数据库错误.txt")
-                    .save_file()
-            {
-                detail.save_error = write_atomic(&path, detail.document().as_bytes())
-                    .err()
-                    .map(|error| format!("无法保存错误详情。{error}"));
-            }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.button("关闭").clicked()
-            })
-            .inner
-        })
-        .inner
+        style::dialog_footer_split(
+            ui,
+            |ui| {
+                if ui.button("复制详情").clicked() {
+                    ctx.copy_text(detail.document());
+                }
+                if ui.button("另存错误详情…").clicked()
+                    && let Some(path) = rfd::FileDialog::new()
+                        .set_title("另存错误详情")
+                        .add_filter("文本文件", &["txt"])
+                        .set_file_name("数据库错误.txt")
+                        .save_file()
+                {
+                    detail.save_error = write_atomic(&path, detail.document().as_bytes())
+                        .err()
+                        .map(|error| format!("无法保存错误详情。{error}"));
+                }
+            },
+            |ui| ui.button("关闭").clicked(),
+        )
+        .1
     });
     if response.inner || response.should_close() {
         *state = None;

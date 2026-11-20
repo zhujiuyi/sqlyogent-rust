@@ -525,7 +525,7 @@ impl Inspector {
         let modal = style::modal(ctx, egui::Id::new("cell-value")).show(ctx, |ui| {
             ui.set_width((available.x - 60.0).clamp(360.0, 680.0));
             ui.horizontal(|ui| {
-                ui.heading(if self.editable {
+                style::page_title(ui, if self.editable {
                     "编辑单元格内容"
                 } else {
                     "查看单元格内容"
@@ -719,37 +719,43 @@ impl Inspector {
             } else if let Some(notice) = self.notice {
                 ui.colored_label(style::success(), notice);
             }
-            ui.separator();
-            ui.horizontal_wrapped(|ui| {
-                if self.editable
-                    && ui.button("从文件载入…").clicked()
-                    && let Some(path) = rfd::FileDialog::new().set_title("选择内容文件").pick_file()
-                {
-                    self.error = self.import(&path).err();
-                }
-                if ui
-                    .add_enabled(!self.null, egui::Button::new("保存到新文件…"))
-                    .clicked()
-                    && let Some(path) = rfd::FileDialog::new()
-                        .set_title("保存单元格内容")
-                        .save_file()
-                {
-                    self.error = self.export(&path).err();
-                }
-                ui.separator();
-                if ui
-                    .button(if self.editable { "取消" } else { "关闭" })
-                    .clicked()
-                {
-                    outcome = Outcome::Dismiss;
-                }
-                if self.editable && ui.add(style::primary("应用到行草稿")).clicked() {
-                    match self.value() {
-                        Ok(cell) => outcome = Outcome::Apply(cell),
-                        Err(error) => self.error = Some(error),
+            let editable = self.editable;
+            let writable = !self.null;
+            let (_, (dismiss, apply)) = style::dialog_footer_split(
+                ui,
+                |ui| {
+                    if editable
+                        && ui.button("从文件载入…").clicked()
+                        && let Some(path) =
+                            rfd::FileDialog::new().set_title("选择内容文件").pick_file()
+                    {
+                        self.error = self.import(&path).err();
                     }
+                    if ui
+                        .add_enabled(writable, egui::Button::new("保存到新文件…"))
+                        .clicked()
+                        && let Some(path) = rfd::FileDialog::new()
+                            .set_title("保存单元格内容")
+                            .save_file()
+                    {
+                        self.error = self.export(&path).err();
+                    }
+                },
+                |ui| {
+                    let dismiss = ui.button(if editable { "取消" } else { "关闭" }).clicked();
+                    let apply = editable && ui.add(style::primary("应用到行草稿")).clicked();
+                    (dismiss, apply)
+                },
+            );
+            if dismiss {
+                outcome = Outcome::Dismiss;
+            }
+            if apply {
+                match self.value() {
+                    Ok(cell) => outcome = Outcome::Apply(cell),
+                    Err(error) => self.error = Some(error),
                 }
-            });
+            }
         });
         if !self.editable && modal.should_close() {
             Outcome::Dismiss

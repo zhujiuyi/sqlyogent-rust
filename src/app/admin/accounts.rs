@@ -39,7 +39,7 @@ impl Manager {
                 let frame = ctx.content_rect();
                 ui.set_width((frame.width() - 64.0).clamp(480.0, 720.0));
                 ui.horizontal(|ui| {
-                    ui.heading("用户与权限");
+                    style::page_title(ui, "用户与权限");
                     ui.add_space(6.0);
                     style::badge(ui, &ws.label, style::muted(), style::chrome());
                 });
@@ -200,51 +200,55 @@ impl Manager {
     }
 
     fn browse(&mut self, ui: &mut egui::Ui, ws: &mut Workspace) {
-        let picked = ui
-            .horizontal(|ui| {
-                ui.label("账户");
-                let selected = self
-                    .selected
-                    .as_ref()
-                    .map_or_else(|| "选择账户".into(), AccountName::label);
-                let picked = ComboBox::from_id_salt("account-picker")
-                    .selected_text(selected)
-                    .width(280.0)
-                    .show_ui(ui, |ui| {
-                        let mut picked = None;
-                        for account in &self.accounts {
-                            if ui
-                                .selectable_label(
-                                    self.selected.as_ref() == Some(account),
-                                    account.label(),
-                                )
-                                .clicked()
-                            {
-                                picked = Some(account.clone());
+        let picked = style::subtle_card(egui::Margin::symmetric(10, 8))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.label("账户");
+                    let selected = self
+                        .selected
+                        .as_ref()
+                        .map_or_else(|| "选择账户".into(), AccountName::label);
+                    let picked = ComboBox::from_id_salt("account-picker")
+                        .selected_text(selected)
+                        .width(280.0)
+                        .show_ui(ui, |ui| {
+                            let mut picked = None;
+                            for account in &self.accounts {
+                                if ui
+                                    .selectable_label(
+                                        self.selected.as_ref() == Some(account),
+                                        account.label(),
+                                    )
+                                    .clicked()
+                                {
+                                    picked = Some(account.clone());
+                                }
                             }
-                        }
-                        if self.accounts.is_empty() {
-                            ui.label("暂无可列出的账户");
-                        }
-                        picked
-                    })
-                    .inner
-                    .flatten();
-                if ui.button("指定账户…").clicked() {
-                    self.open_form(
-                        AccountAction::Read,
-                        AccountName {
-                            user: String::new(),
-                            host: "localhost".into(),
-                        },
-                    );
-                }
-                if ui.button("刷新账户列表").clicked() {
-                    self.error.clear();
-                    self.notice.clear();
-                    self.send(ws, AccountCommand::List);
-                }
-                picked
+                            if self.accounts.is_empty() {
+                                ui.label("暂无可列出的账户");
+                            }
+                            picked
+                        })
+                        .inner
+                        .flatten();
+                    if ui.button("指定账户…").clicked() {
+                        self.open_form(
+                            AccountAction::Read,
+                            AccountName {
+                                user: String::new(),
+                                host: "localhost".into(),
+                            },
+                        );
+                    }
+                    if ui.button("刷新账户列表").clicked() {
+                        self.error.clear();
+                        self.notice.clear();
+                        self.send(ws, AccountCommand::List);
+                    }
+                    picked
+                })
+                .inner
             })
             .inner;
         if let Some(account) = picked {
@@ -254,38 +258,41 @@ impl Manager {
             return;
         }
 
-        ui.horizontal_wrapped(|ui| {
-            if ui.button("新建账户…").clicked() {
-                self.open_form(
-                    AccountAction::Create,
-                    AccountName {
-                        user: String::new(),
-                        host: "localhost".into(),
-                    },
-                );
-                self.create_privileges.clear();
-                self.send(ws, AccountCommand::ListPrivileges);
-            }
-            if let Some(account) = self.selected.clone() {
-                if ui.button("改名或主机…").clicked() {
-                    self.open_form(AccountAction::Rename, account.clone());
+        style::subtle_card(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("新建账户…").clicked() {
+                    self.open_form(
+                        AccountAction::Create,
+                        AccountName {
+                            user: String::new(),
+                            host: "localhost".into(),
+                        },
+                    );
+                    self.create_privileges.clear();
+                    self.send(ws, AccountCommand::ListPrivileges);
                 }
-                if ui.button("修改密码…").clicked() {
-                    self.open_form(AccountAction::Password, account.clone());
+                if let Some(account) = self.selected.clone() {
+                    if ui.button("改名或主机…").clicked() {
+                        self.open_form(AccountAction::Rename, account.clone());
+                    }
+                    if ui.button("修改密码…").clicked() {
+                        self.open_form(AccountAction::Password, account.clone());
+                    }
+                    if style::menu_item_danger(ui, "删除账户…").clicked() {
+                        self.error.clear();
+                        self.notice.clear();
+                        self.review = Some(Review {
+                            label: "删除账户",
+                            details: vec![format!(
+                                "删除 {} 及其直接授权。此操作无法撤销。",
+                                account.label()
+                            )],
+                            command: AccountCommand::Drop(account),
+                        });
+                    }
                 }
-                if ui.button("删除账户…").clicked() {
-                    self.error.clear();
-                    self.notice.clear();
-                    self.review = Some(Review {
-                        label: "删除账户",
-                        details: vec![format!(
-                            "删除 {} 及其直接授权。此操作无法撤销。",
-                            account.label()
-                        )],
-                        command: AccountCommand::Drop(account),
-                    });
-                }
-            }
+            });
         });
         if self.form.is_some() || self.review.is_some() {
             return;

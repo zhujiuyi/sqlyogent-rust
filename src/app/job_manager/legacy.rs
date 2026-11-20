@@ -106,7 +106,7 @@ impl Importer {
         let response =
             crate::app::style::modal(ctx, egui::Id::new("legacy-job-import")).show(ctx, |ui| {
                 ui.set_width((bounds.width() - 48.0).clamp(380.0, 690.0));
-                ui.heading("导入 SQLyog 作业");
+                style::page_title(ui, "导入 SQLyog 作业");
                 ui.horizontal_wrapped(|ui| {
                     ui.label(self.source.kind().label());
                     path_label(ui, self.source.path());

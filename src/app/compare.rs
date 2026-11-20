@@ -222,7 +222,7 @@ pub(super) fn dialog(
     let screen = ctx.content_rect();
     crate::app::style::modal(ctx, egui::Id::new("schema-comparison")).show(ctx, |ui| {
         ui.set_width((screen.width() - 70.0).clamp(540.0, 1_060.0));
-        ui.heading("结构同步");
+        style::page_title(ui, "结构同步");
         ui.add_space(6.0);
         let before = (compare.source.clone(), compare.target.clone());
         ui.add_enabled_ui(!reading && !applying, |ui| {

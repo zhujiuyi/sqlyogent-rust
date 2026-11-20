@@ -384,7 +384,7 @@ impl Workbench {
         };
         let result =
             crate::app::style::modal(ctx, egui::Id::new("rename-query-tab")).show(ctx, |ui| {
-                ui.heading("重命名查询页");
+                style::page_title(ui, "重命名查询页");
                 ui.label("查询页名称");
                 let mut output = TextEdit::singleline(&mut rename.name)
                     .desired_width(260.0)

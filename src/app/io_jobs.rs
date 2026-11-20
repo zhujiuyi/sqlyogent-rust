@@ -696,7 +696,7 @@ impl BackupForm {
         let mut start_path = None;
         let modal = style::modal(ctx, egui::Id::new("dump-form")).show(ctx, |ui| {
             ui.set_width(width);
-            ui.heading("备份为 SQL 转储文件");
+            style::page_title(ui, "备份为 SQL 转储文件");
             ui.add_space(4.0);
             form_scroll(ctx, reserved_height).show(ui, |ui| {
                 ui.add_enabled_ui(!running, |ui| {

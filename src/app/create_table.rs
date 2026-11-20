@@ -157,7 +157,7 @@ pub(super) fn dialog(
     style::modal(ctx, egui::Id::new("create-table-fields")).show(ctx, |ui| {
         ui.set_width((rect.width() - 58.0).clamp(1.0, 1170.0));
         ui.horizontal(|ui| {
-            ui.heading("新建表");
+            style::page_title(ui, "新建表");
             ui.add_space(6.0);
             style::badge(ui, &form.schema, style::accent(), style::accent_soft());
         });

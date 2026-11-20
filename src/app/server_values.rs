@@ -78,7 +78,7 @@ impl Dialog {
             crate::app::style::modal(ctx, egui::Id::new("server-value-list")).show(ctx, |ui| {
                 let size = ctx.content_rect().size();
                 ui.set_width((size.x - 60.0).clamp(380.0, 880.0));
-                ui.heading(self.view.label());
+                style::page_title(ui, self.view.label());
                 ui.label(&workspace.label);
                 if self.view.is_session()
                     && workspace
@@ -160,29 +160,29 @@ impl Dialog {
                             });
                         });
                 }
-                ui.add_space(8.0);
-                ui.separator();
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(ready && !self.pending, egui::Button::new("刷新"))
-                        .clicked()
-                    {
-                        self.refresh(workspace);
-                    }
-                    if !self.details
-                        && ui
-                            .add_enabled(self.selected.is_some(), egui::Button::new("查看完整值"))
+                style::dialog_footer_split(
+                    ui,
+                    |ui| {
+                        if ui
+                            .add_enabled(ready && !self.pending, egui::Button::new("刷新"))
                             .clicked()
-                    {
-                        self.details = true;
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.button("关闭").clicked()
-                    })
-                    .inner
-                })
-                .inner
+                        {
+                            self.refresh(workspace);
+                        }
+                        if !self.details
+                            && ui
+                                .add_enabled(
+                                    self.selected.is_some(),
+                                    egui::Button::new("查看完整值"),
+                                )
+                                .clicked()
+                        {
+                            self.details = true;
+                        }
+                    },
+                    |ui| ui.button("关闭").clicked(),
+                )
+                .1
             });
         response.inner || response.should_close()
     }

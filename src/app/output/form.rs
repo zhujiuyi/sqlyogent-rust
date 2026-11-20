@@ -89,6 +89,7 @@ pub(super) fn show(
                     view.inspect_cell(set, source, column);
                 }
                 response.context_menu(|ui| {
+                    style::context_menu_ui(ui);
                     grid::form_cell_menu(ui, set, view, source, column, copy_headers);
                 });
             });

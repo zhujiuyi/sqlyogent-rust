@@ -257,7 +257,7 @@ impl Reconcile {
         let connected = workspace.server.is_some() && !workspace.busy();
         let modal = style::modal(ctx, ui.id().with("layout-reconciliation")).show(ctx, |ui| {
             ui.set_width((ctx.content_rect().width() - 38.0).clamp(350.0, 720.0));
-            ui.heading("打开架构布局");
+            style::page_title(ui, "打开架构布局");
             ui.label(format!("当前连接 · {}", workspace.label));
             if let Some(notice) = &self.notice {
                 match notice {
@@ -646,7 +646,7 @@ impl Designer {
         workspace: &mut Workspace,
         interactive: bool,
     ) {
-        ui.heading("架构设计器");
+        style::page_title(ui, "架构设计器");
         ui.label("核对布局与目标数据库");
         if !interactive {
             return;

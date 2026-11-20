@@ -109,7 +109,7 @@ impl SelectiveCopy {
                 let width = (ctx.content_rect().width() - 48.0).clamp(420.0, 640.0);
                 ui.set_width(width);
                 ui.horizontal(|ui| {
-                    ui.heading("复制表");
+                    style::page_title(ui, "复制表");
                     ui.add_space(6.0);
                     style::badge(
                         ui,
@@ -1123,7 +1123,7 @@ pub(super) fn dialog(
     let modal = crate::app::style::modal(ctx, egui::Id::new("copy-database-objects")).show(ctx, |ui| {
         ui.set_width((viewport.width() - 48.0).clamp(420.0, 700.0));
         ui.horizontal(|ui| {
-            ui.heading("复制数据库对象");
+            style::page_title(ui, "复制数据库对象");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button("帮助").on_hover_text("F1").clicked()
                     || ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::F1))

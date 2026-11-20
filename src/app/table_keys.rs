@@ -208,7 +208,7 @@ pub(super) fn dialog(
     crate::app::style::modal(ctx, egui::Id::new("table-key-manager")).show(ctx, |ui| {
         ui.set_width((screen.width() - 72.0).clamp(550.0, 920.0));
         ui.horizontal(|ui| {
-            ui.heading(if manager.kind == Kind::Index {
+            style::page_title(ui, if manager.kind == Kind::Index {
                 "管理索引"
             } else {
                 "管理外键"

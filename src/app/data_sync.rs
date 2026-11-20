@@ -249,7 +249,7 @@ pub(super) fn dialog(
     crate::app::style::modal(ctx, egui::Id::new("table-data-sync")).show(ctx, |ui| {
         ui.set_width((ctx.content_rect().width() - 60.0).clamp(540.0, 880.0));
         ui.horizontal(|ui| {
-            ui.heading(if sync.tables.is_some() {
+            style::page_title(ui, if sync.tables.is_some() {
                 "多表数据同步"
             } else {
                 "比较与同步表数据"

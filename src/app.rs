@@ -1422,14 +1422,27 @@ impl Workbench {
         let has_feedback =
             !form.error.is_empty() || form.test_result.is_some() || !form.notice.is_empty();
         let exterior_height =
-            if has_feedback { 218.0 } else { 128.0 } + if testing { 32.0 } else { 0.0 };
+            if has_feedback { 222.0 } else { 132.0 } + if testing { 32.0 } else { 0.0 };
         style::modal(ctx, egui::Id::new("connection-dialog")).show(ctx, |ui| {
             ui.set_width((ctx.content_rect().width() - 48.0).clamp(1.0, 580.0));
             ui.horizontal(|ui| {
-                ui.image((self.brand_icon.id(), egui::vec2(26.0, 26.0)));
+                ui.spacing_mut().item_spacing.x = 11.0;
+                egui::Frame::new()
+                    .fill(style::accent_tint())
+                    .stroke(egui::Stroke::new(1.0_f32, style::border_subtle()))
+                    .corner_radius(egui::CornerRadius::same(9))
+                    .inner_margin(egui::Margin::same(6))
+                    .show(ui, |ui| {
+                        ui.image((self.brand_icon.id(), egui::vec2(28.0, 28.0)));
+                    });
                 ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 1.0;
-                    ui.heading("数据库连接");
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    ui.label(
+                        RichText::new("数据库连接")
+                            .size(20.0)
+                            .strong()
+                            .color(style::ink()),
+                    );
                     ui.label(
                         RichText::new("配置 MySQL / MariaDB 服务器、SSH/HTTP 隧道与安全证书")
                             .small()
@@ -1437,7 +1450,7 @@ impl Workbench {
                     );
                 });
             });
-            ui.add_space(10.0);
+            ui.add_space(12.0);
             egui::ScrollArea::vertical()
                 .id_salt("connection-form-body")
                 .max_height((ctx.content_rect().height() - exterior_height).max(64.0))
@@ -2014,11 +2027,27 @@ impl Workbench {
         let mut favorite = None;
         let name = self.preferences.query_keys().0.name();
         egui::TopBottomPanel::top("application-bar")
-            .frame(style::bar(egui::Margin::symmetric(10, 5)))
+            .frame(style::bar(egui::Margin::symmetric(14, 7)))
             .show(ctx, |ui| {
                 style::paint_bottom_hairline(ui);
-                let compact = ui.available_width() < 760.0;
+                let compact = ui.available_width() < 980.0;
+                let show_brand_name = ui.available_width() >= 1060.0;
                 ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    ui.add(egui::Image::new((
+                        self.brand_icon.id(),
+                        egui::vec2(22.0, 22.0),
+                    )))
+                    .on_hover_text("小海豚 SQL");
+                    if show_brand_name {
+                        ui.label(
+                            RichText::new("小海豚 SQL")
+                                .size(14.5)
+                                .strong()
+                                .color(style::ink()),
+                        );
+                    }
+                    ui.add_space(8.0);
                     style::menu(ui, "文件", |ui| {
                         let current = &self.workspaces[self.active];
                         let active_connection = current.server.is_some();
@@ -2730,12 +2759,13 @@ impl Workbench {
             .map(str::to_owned);
         let active_schemas = self.workspaces[self.active].schemas.clone();
         egui::TopBottomPanel::top("workspace-bar")
-            .frame(style::chrome_bar(egui::Margin::symmetric(14, 5)))
+            .frame(style::chrome_bar(egui::Margin::symmetric(14, 6)))
             .show(ctx, |ui| {
                 style::paint_bottom_hairline(ui);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if self.workspaces.len() > 1 {
-                        ui.menu_button("连接列表", |ui| {
+                        style::ghost_menu_button(ui, RichText::new("连接列表"), |ui| {
+                            style::context_menu_ui(ui);
                             egui::ScrollArea::vertical()
                                 .max_height(320.0)
                                 .show(ui, |ui| {
@@ -2753,7 +2783,6 @@ impl Workbench {
                                     }
                                 });
                         })
-                        .response
                         .on_hover_text("切换连接（Ctrl+Tab / Ctrl+Shift+Tab）");
                     }
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
@@ -2777,52 +2806,14 @@ impl Workbench {
                                         } else {
                                             style::subtle()
                                         };
-                                        let response = egui::Frame::new()
-                                            .fill(if selected {
-                                                style::surface()
-                                            } else {
-                                                style::panel()
-                                            })
-                                            .stroke(egui::Stroke::new(
-                                                1.0_f32,
-                                                if selected {
-                                                    style::border()
-                                                } else {
-                                                    style::border_subtle()
-                                                },
-                                            ))
-                                            .corner_radius(egui::CornerRadius::same(6))
-                                            .inner_margin(egui::Margin::symmetric(9, 3))
-                                            .show(ui, |ui| {
-                                                ui.horizontal(|ui| {
-                                                    ui.spacing_mut().item_spacing.x = 5.0;
-                                                    style::draw_status_dot(ui, dot_color, connected);
-                                                    let label = if selected {
-                                                        RichText::new(&workspace.label)
-                                                            .strong()
-                                                            .color(style::ink())
-                                                    } else {
-                                                        RichText::new(&workspace.label)
-                                                            .color(style::muted())
-                                                    };
-                                                    ui.add(
-                                                        egui::Label::new(label).selectable(false),
-                                                    );
-                                                });
-                                            })
-                                            .response
-                                            .interact(egui::Sense::click());
-                                        if selected {
-                                            let rect = response.rect;
-                                            ui.painter().rect_filled(
-                                                egui::Rect::from_min_max(
-                                                    egui::pos2(rect.left() + 6.0, rect.bottom() - 2.0),
-                                                    egui::pos2(rect.right() - 6.0, rect.bottom()),
-                                                ),
-                                                egui::CornerRadius::same(1),
-                                                style::accent(),
-                                            );
-                                        }
+                                        let response = style::workspace_tab(
+                                            ui,
+                                            workspace.key,
+                                            &workspace.label,
+                                            selected,
+                                            dot_color,
+                                            connected,
+                                        );
                                         if reveal && selected {
                                             response.scroll_to_me(None);
                                         }
@@ -2830,6 +2821,7 @@ impl Workbench {
                                             select = Some(index);
                                         }
                                         response.context_menu(|ui| {
+                                            style::context_menu_ui(ui);
                                             if let Some(server) = &workspace.server {
                                                 let mut action = None;
                                                 objects::connection_menu(
@@ -3199,7 +3191,7 @@ impl Workbench {
             egui::Id::new("status-bar")
         };
         let panel =
-            egui::TopBottomPanel::bottom(id).frame(style::pane(egui::Margin::symmetric(14, 6)));
+            egui::TopBottomPanel::bottom(id).frame(style::chrome_bar(egui::Margin::symmetric(14, 6)));
         host.bottom(panel, |ui| {
             style::paint_top_hairline(ui);
             // 先从右侧排布数据库名和版本徽章，再让左侧状态文本在剩余宽度内截断，避免长消息覆盖右侧信息
@@ -3210,20 +3202,14 @@ impl Workbench {
                     } else {
                         format!("连接 ID：{}", server.connection_id)
                     };
-                    egui::Frame::new()
-                        .fill(style::chrome())
-                        .corner_radius(egui::CornerRadius::same(5))
-                        .inner_margin(egui::Margin::symmetric(7, 1))
-                        .show(ui, |ui| {
-                            ui.label(
-                                RichText::new(&server.version)
-                                    .small()
-                                    .monospace()
-                                    .color(style::muted()),
-                            )
-                            .on_hover_text(version_tip);
-                        });
-                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(&server.version)
+                            .small()
+                            .monospace()
+                            .color(style::subtle()),
+                    )
+                    .on_hover_text(version_tip);
+                    ui.add_space(5.0);
                     ui.label(
                         RichText::new(workspace.active_database().unwrap_or("未选择默认数据库"))
                             .small()
@@ -3334,7 +3320,13 @@ impl Workbench {
         host.side(panel, |ui| {
             style::paint_right_hairline(ui);
             ui.horizontal(|ui| {
-                ui.label(RichText::new("数据库").size(15.0).strong().color(style::ink()));
+                ui.spacing_mut().item_spacing.x = 7.0;
+                ui.label(
+                    RichText::new("对象浏览器")
+                        .size(14.0)
+                        .strong()
+                        .color(style::ink()),
+                );
                 if workspace.server.is_some() && !workspace.schemas.is_empty() {
                     style::badge(
                         ui,
@@ -3345,21 +3337,23 @@ impl Workbench {
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if workspace.server.is_some() {
-                        if ui
-                            .add_enabled(!workspace.busy(), Button::new("刷新"))
-                            .on_hover_text(format!("刷新对象浏览器（{refresh_key}）"))
-                            .clicked()
+                        if style::icon_button(
+                            ui,
+                            style::ToolbarIcon::Refresh,
+                            !workspace.busy(),
+                            &format!("刷新对象浏览器（{refresh_key}）"),
+                        )
+                        .clicked()
                         {
                             workspace.send(Command::ListSchemas, "正在刷新数据库列表…");
                         }
                     } else if workspace.profile.is_some() {
-                        reconnect = ui
-                            .add_enabled(!workspace.busy(), Button::new("重新连接"))
-                            .clicked();
+                        reconnect =
+                            style::ghost_button_enabled(ui, "重新连接", !workspace.busy()).clicked();
                     }
                 });
             });
-            ui.add_space(8.0);
+            ui.add_space(9.0);
             if workspace.server.is_none() {
                 style::card(egui::Margin::same(14)).show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
@@ -3377,15 +3371,12 @@ impl Workbench {
                 });
                 return;
             }
-            ui.horizontal(|ui| {
-                ui.add(
-                    TextEdit::singleline(&mut workspace.schema_filter)
-                        .hint_text("筛选数据库和对象")
-                        .margin(egui::Margin::symmetric(10, 6))
-                        .desired_width(f32::INFINITY),
-                );
-            });
-            ui.add_space(8.0);
+            let _ = style::search_field(
+                ui,
+                &mut workspace.schema_filter,
+                "筛选数据库和对象",
+            );
+            ui.add_space(9.0);
             let filter = workspace.schema_filter.to_lowercase();
             let focus_schema = workspace
                 .selected
@@ -3393,8 +3384,18 @@ impl Workbench {
                 .map(|object| object.schema.as_str())
                 .or_else(|| workspace.server.as_ref()?.database.as_deref());
             egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
                 let mut object_focus = None;
                 let mut schema_focus = None;
+                if workspace.schemas.is_empty() {
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new("暂无数据库，请刷新或检查连接权限。")
+                            .small()
+                            .color(style::muted()),
+                    );
+                    return;
+                }
                 for schema in &workspace.schemas {
                     let items = workspace.objects.get(schema);
                     let matches_schema = schema.to_lowercase().contains(&filter);
@@ -3443,9 +3444,12 @@ impl Workbench {
                                 if matches.is_empty() && !matches_schema {
                                     continue;
                                 }
-                                let folder_label = RichText::new(kind_label(kind))
-                                    .color(style::object_kind_color(kind))
-                                    .strong();
+                                let folder_label = RichText::new(format!(
+                                    "{}  ·  {}",
+                                    kind_label(kind),
+                                    matches.len()
+                                ))
+                                .color(style::muted());
                                 let group = egui::CollapsingHeader::new(folder_label)
                                     .id_salt((schema, kind_label(kind)))
                                     .default_open(kind == ObjectKind::Table)
@@ -3487,6 +3491,7 @@ impl Workbench {
                                                 ));
                                             }
                                             response.context_menu(|ui| {
+                                                style::context_menu_ui(ui);
                                                 objects::object_menu(ui, object, &mut action);
                                             });
                                         }
@@ -3495,6 +3500,7 @@ impl Workbench {
                                     schema_switch = Some(schema.clone());
                                 }
                                 group.header_response.context_menu(|ui| {
+                                    style::context_menu_ui(ui);
                                     objects::folder_menu(ui, schema, kind, &mut action);
                                 });
                             }
@@ -3506,6 +3512,7 @@ impl Workbench {
                         schema_focus = Some(header.header_response.clone());
                     }
                     header.header_response.context_menu(|ui| {
+                        style::context_menu_ui(ui);
                         objects::schema_menu(ui, schema, &mut action);
                     });
                 }
@@ -3832,16 +3839,16 @@ impl Workbench {
             egui::Frame::new()
                 .fill(style::chrome())
                 .inner_margin(egui::Margin {
-                    left: 10,
-                    right: 10,
-                    top: 6,
+                    left: 12,
+                    right: 12,
+                    top: 7,
                     bottom: 0,
                 })
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     style::paint_bottom_hairline(ui);
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 4.0;
+                        ui.spacing_mut().item_spacing.x = 6.0;
                         let mut next_query = None;
                         let mut next_layout = None;
                         let document = designs
@@ -3856,7 +3863,7 @@ impl Workbench {
                             .max_width((ui.available_width() - 40.0).max(96.0))
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 4.0;
+                                    ui.spacing_mut().item_spacing.x = 6.0;
                                     for (tab_index, tab) in workspace.tabs.iter().enumerate() {
                                         let selected = document == Document::Query(tab.id);
                                         let (response, closed) = style::editor_tab(
@@ -3885,6 +3892,7 @@ impl Workbench {
                                             next_query = Some(tab_index);
                                         }
                                         response.context_menu(|ui| {
+                                            style::context_menu_ui(ui);
                                             if ui.button("重命名查询页…").clicked() {
                                                 rename_tab = Some(tab.id);
                                                 ui.close();
@@ -3991,8 +3999,9 @@ impl Workbench {
                 }
                 return;
             }
-            style::bar(egui::Margin::symmetric(12, 6)).show(ui, |ui| {
+            style::bar(egui::Margin::symmetric(12, 7)).show(ui, |ui| {
                 style::paint_bottom_hairline(ui);
+                ui.spacing_mut().item_spacing.x = 8.0;
                 ui.horizontal(|ui| {
                     let ready = workspace.server.is_some() && !workspace.busy();
                     let cancellable = workspace.cancellable();
@@ -4005,36 +4014,58 @@ impl Workbench {
                         "停止执行"
                     };
                     let stop_hint = "取消当前查询并停止执行剩余语句";
-                    let current = ui
-                        .add_enabled(
+                    let current = {
+                        let (icon, label, tone) = if stop_current {
+                            (
+                                style::ToolbarIcon::Stop,
+                                stop_label,
+                                style::ActionTone::Danger,
+                            )
+                        } else {
+                            (
+                                style::ToolbarIcon::Run,
+                                "执行",
+                                style::ActionTone::Primary,
+                            )
+                        };
+                        style::action_button(
+                            ui,
+                            icon,
+                            label,
+                            tone,
                             ready || (stop_current && !stopping),
-                            if stop_current {
-                                style::danger(stop_label)
-                            } else {
-                                style::primary("执行")
-                            },
                         )
                         .on_hover_text(if stop_current {
                             stop_hint.to_owned()
                         } else {
                             format!("执行当前语句或选中的语句（{execution_key}）")
                         })
-                        .clicked();
-                    let batch = ui
-                        .add_enabled(
-                            ready || (stop_batch && !stopping),
-                            if stop_batch {
-                                style::danger(stop_label)
-                            } else {
-                                Button::new("批量执行")
-                            },
+                        .clicked()
+                    };
+                    let batch_enabled = ready || (stop_batch && !stopping);
+                    let batch = if stop_batch {
+                        style::action_button(
+                            ui,
+                            style::ToolbarIcon::Stop,
+                            stop_label,
+                            style::ActionTone::Danger,
+                            batch_enabled,
                         )
-                        .on_hover_text(if stop_batch {
-                            stop_hint.to_owned()
-                        } else {
-                            format!("有选区时执行选区，否则执行整页（Shift+{execution_key}）")
-                        })
-                        .clicked();
+                        .on_hover_text(stop_hint)
+                        .clicked()
+                    } else {
+                        style::action_button(
+                            ui,
+                            style::ToolbarIcon::RunBatch,
+                            "批量执行",
+                            style::ActionTone::Secondary,
+                            batch_enabled,
+                        )
+                        .on_hover_text(format!(
+                            "有选区时执行选区，否则执行整页（Shift+{execution_key}）"
+                        ))
+                        .clicked()
+                    };
                     if (current && stop_current) || (batch && stop_batch) {
                         workspace.stop_batch();
                     } else if current {
@@ -4042,21 +4073,32 @@ impl Workbench {
                     } else if batch {
                         edit = Some(Edit::Batch);
                     }
-                    if ui.button("格式化").clicked() {
+                    if style::action_button(
+                        ui,
+                        style::ToolbarIcon::Format,
+                        "格式化",
+                        style::ActionTone::Secondary,
+                        true,
+                    )
+                    .on_hover_text("格式化整页 SQL")
+                    .clicked()
+                    {
                         edit = Some(Edit::Text(editor_tools::Action::FormatAll));
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        style::subtle_card(egui::Margin::symmetric(9, 2)).show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new("结果行数上限").small().color(style::muted()),
-                                );
-                                ui.add(
-                                    egui::DragValue::new(&mut workspace.result_limit)
-                                        .range(1..=10_000)
-                                        .speed(20),
-                                );
-                            });
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 6.0;
+                            ui.label(
+                                RichText::new("结果上限")
+                                    .small()
+                                    .color(style::subtle()),
+                            );
+                            ui.add(
+                                egui::DragValue::new(&mut workspace.result_limit)
+                                    .range(1..=10_000)
+                                    .speed(20),
+                            )
+                            .on_hover_text("每次查询返回的最大结果行数");
                         });
                     });
                 });
@@ -4721,7 +4763,7 @@ impl Workbench {
         );
         let mut choice = None;
         let dialog = crate::app::style::modal(ctx, egui::Id::new("discard-sql")).show(ctx, |ui| {
-            ui.heading(match self.discard {
+            style::page_title(ui, match self.discard {
                 Some(Discard::Tab { .. }) => "保存查询修改？",
                 Some(Discard::QueryDesign(_)) => "保存查询布局？",
                 _ => "放弃未保存的更改吗？",

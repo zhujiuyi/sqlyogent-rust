@@ -458,6 +458,7 @@ fn catalog(
                 row.inner
                     .on_hover_text(format!("{} · 双击添加", object.name))
                     .context_menu(|ui| {
+                        style::context_menu_ui(ui);
                         if ui.button("添加到画布").clicked() {
                             picked = true;
                             ui.close();
@@ -613,7 +614,10 @@ fn draw(
     if scroll != Vec2::ZERO {
         builder.query.camera.pan = bounded(Vec2::from(builder.query.camera.pan) + scroll);
     }
-    response.context_menu(|ui| context_menu(ui, builder, &mut action));
+    response.context_menu(|ui| {
+        style::context_menu_ui(ui);
+        context_menu(ui, builder, &mut action);
+    });
     if let Some(object) = response.dnd_release_payload::<DbObject>()
         && let Some(pointer) = mouse
     {

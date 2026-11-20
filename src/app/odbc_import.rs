@@ -1521,7 +1521,7 @@ pub(super) fn dialog(
     let selected_target = import.object();
     style::modal(ctx, egui::Id::new("odbc-import")).show(ctx, |ui| {
         ui.set_width(form_width(ctx, 690.0));
-        ui.heading("导入外部数据");
+        style::page_title(ui, "导入外部数据");
         ui.add_space(4.0);
         let configuring = matches!(import.source, Source::Form);
         form_scroll(ctx, 140.0).show(ui, |ui| {

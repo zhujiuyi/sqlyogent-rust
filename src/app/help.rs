@@ -1,4 +1,4 @@
-use eframe::egui::{self, Align, Button, Grid, Layout, RichText, ScrollArea, Ui};
+use eframe::egui::{self, Button, Grid, RichText, ScrollArea, Ui};
 
 use super::{preferences::Preferences, state, style};
 
@@ -44,7 +44,7 @@ pub(super) fn dialog(ctx: &egui::Context, open: &mut Option<Page>, preferences: 
     let mut next = Some(page);
     let modal = style::modal(ctx, egui::Id::new("help")).show(ctx, |ui| {
         ui.set_width((ctx.content_rect().width() - 48.0).clamp(260.0, 580.0));
-        ui.heading(page.title());
+        style::page_title(ui, page.title());
         ui.add_space(4.0);
         ui.separator();
         ui.add_space(4.0);
@@ -63,19 +63,16 @@ pub(super) fn dialog(ctx: &egui::Context, open: &mut Option<Page>, preferences: 
                 Page::Shortcuts => shortcuts(ui, preferences),
                 Page::About => about(ui),
             });
-        ui.add_space(6.0);
-        ui.separator();
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            if !matches!(page, Page::Guide) && ui.button("返回使用帮助").clicked() {
-                next = Some(Page::Guide);
-            }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.add(style::primary("关闭")).clicked() {
-                    next = None;
-                }
-            });
-        });
+        let (back, close) = style::dialog_footer_split(
+            ui,
+            |ui| !matches!(page, Page::Guide) && ui.button("返回使用帮助").clicked(),
+            |ui| ui.add(style::primary("关闭")).clicked(),
+        );
+        if back {
+            next = Some(Page::Guide);
+        } else if close {
+            next = None;
+        }
     });
     *open = if modal.should_close() { None } else { next };
 }

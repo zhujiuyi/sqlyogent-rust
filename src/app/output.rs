@@ -48,7 +48,7 @@ impl ResultMode {
 }
 
 pub(super) fn result_view_controls(ui: &mut egui::Ui, mode: &mut ResultMode, form: bool) {
-    style::subtle_card(egui::Margin::symmetric(2, 1)).show(ui, |ui| {
+    style::subtle_card(egui::Margin::symmetric(3, 2)).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
             for choice in ResultMode::ALL {
@@ -69,7 +69,7 @@ pub(super) fn result_view_controls(ui: &mut egui::Ui, mode: &mut ResultMode, for
                 } else {
                     egui::Sense::hover()
                 };
-                let (rect, response) = ui.allocate_exact_size(egui::vec2(24.0, 20.0), sense);
+                let (rect, response) = ui.allocate_exact_size(egui::vec2(28.0, 24.0), sense);
                 if ui.is_rect_visible(rect) {
                     let hovered = enabled && response.hovered();
                     let fill = if selected {
@@ -96,7 +96,7 @@ pub(super) fn result_view_controls(ui: &mut egui::Ui, mode: &mut ResultMode, for
                     let painter = ui.painter();
                     painter.rect(
                         rect,
-                        egui::CornerRadius::same(4),
+                        egui::CornerRadius::same(7),
                         fill,
                         stroke,
                         egui::StrokeKind::Inside,
@@ -475,7 +475,7 @@ pub(super) fn panel_in(
                 }
             }
         });
-        ui.separator();
+        ui.add_space(3.0);
         if suppress_modal && has_modal(workspace) {
             ui.label(RichText::new("切换到此连接以继续处理对话框。").color(style::muted()));
             return;
@@ -719,7 +719,7 @@ pub(super) fn panel_in(
             Output::Definition => definition(ui, workspace, settings.history_font, request_focus),
         }
     };
-    let frame = style::bar(egui::Margin::symmetric(10, 5));
+    let frame = style::bar(egui::Margin::symmetric(12, 8));
     if full_height {
         host.central(egui::CentralPanel::default().frame(frame), content);
     } else {
@@ -917,9 +917,9 @@ fn results(
     }
     let mut filter_changed = false;
     ui.scope(|ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(5.0, 4.0);
-        ui.spacing_mut().button_padding = egui::vec2(7.0, 2.5);
-        ui.spacing_mut().interact_size.y = 22.0;
+        ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+        ui.spacing_mut().button_padding = egui::vec2(8.0, 4.0);
+        ui.spacing_mut().interact_size.y = 26.0;
         ui.horizontal_wrapped(|ui| {
             egui::ComboBox::from_id_salt(("result-set", workspace_key, tab.id))
                 .width(100.0)
@@ -951,7 +951,7 @@ fn results(
                     .add(
                         TextEdit::singleline(&mut view.search)
                             .id(search_id)
-                            .desired_width(140.0)
+                            .desired_width(160.0)
                             .hint_text("筛选已加载行"),
                     )
                     .changed()
@@ -1194,7 +1194,7 @@ pub(super) fn data_info_line(ui: &mut egui::Ui, summary: &str, statement: Option
         if !summary.is_empty() {
             ui.separator();
         }
-        ui.menu_button("查看 SQL", |ui| {
+        style::ghost_menu_button(ui, RichText::new("查看 SQL").small(), |ui| {
             if ui.button("复制 SQL").clicked() {
                 ui.ctx().copy_text(statement.to_owned());
                 ui.close();
@@ -1251,7 +1251,7 @@ pub(super) fn result_export_dialog(
     let mut start = false;
     let modal = style::modal(ctx, id).show(ctx, |ui| {
         ui.set_min_width(475.0);
-        ui.heading(heading);
+        style::page_title(ui, heading);
         ui.label(format!("{row_label} {} 行。", input.row_count()));
         if input.truncated() {
             ui.colored_label(style::error(), truncated);

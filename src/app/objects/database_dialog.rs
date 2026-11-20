@@ -69,7 +69,7 @@ impl ContentsDialog {
                     ),
                 };
                 ui.horizontal(|ui| {
-                    ui.heading(title);
+                    style::page_title(ui, title);
                     ui.add_space(6.0);
                     style::badge(ui, &self.schema, style::error(), style::error_soft());
                 });

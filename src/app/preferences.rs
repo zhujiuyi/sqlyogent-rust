@@ -623,33 +623,19 @@ impl Dialog {
         let mut cancel = false;
         let response = style::modal(ctx, egui::Id::new("preferences")).show(ctx, |ui| {
             ui.set_width((ctx.content_rect().width() - 48.0).clamp(1.0, 580.0));
-            ui.heading("偏好设置");
+            style::page_title(ui, "偏好设置");
             ui.add_space(6.0);
-            style::chrome_bar(egui::Margin::symmetric(6, 4))
-                .corner_radius(9.0)
-                .stroke(egui::Stroke::new(1.0_f32, style::border_subtle()))
-                .show(ui, |ui| {
-                    ui.set_min_width(ui.available_width());
-                    ui.horizontal_wrapped(|ui| {
-                        for (page, label) in [
-                            (Page::General, "常规"),
-                            (Page::Editor, "字体与编辑器"),
-                            (Page::Formatter, "SQL 格式化"),
-                            (Page::Profiler, "查询分析"),
-                            (Page::Design, "设计工具"),
-                        ] {
-                            let selected = self.page == page;
-                            let text = if selected {
-                                egui::RichText::new(label).strong().color(style::accent())
-                            } else {
-                                egui::RichText::new(label).color(style::muted())
-                            };
-                            if style::tab_button(ui, selected, text, true).clicked() {
-                                self.page = page;
-                            }
-                        }
-                    });
-                });
+            style::page_tabs(
+                ui,
+                &mut self.page,
+                &[
+                    (Page::General, "常规"),
+                    (Page::Editor, "字体与编辑器"),
+                    (Page::Formatter, "SQL 格式化"),
+                    (Page::Profiler, "查询分析"),
+                    (Page::Design, "设计工具"),
+                ],
+            );
             ui.add_space(8.0);
             let max_height = (ctx.content_rect().height() - 190.0).max(155.0);
             egui::ScrollArea::vertical()
@@ -672,21 +658,23 @@ impl Dialog {
                 ui.colored_label(style::error(), error);
             }
 
-            ui.separator();
-            ui.horizontal(|ui| {
-                if ui.button("恢复本页默认值").clicked() {
-                    self.page.reset(draft);
-                    self.error = None;
-                }
-                if ui.button("恢复全部默认值").clicked() {
-                    *draft = Preferences::default();
-                    self.error = None;
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            style::dialog_footer_split(
+                ui,
+                |ui| {
+                    if ui.button("恢复本页默认值").clicked() {
+                        self.page.reset(draft);
+                        self.error = None;
+                    }
+                    if ui.button("恢复全部默认值").clicked() {
+                        *draft = Preferences::default();
+                        self.error = None;
+                    }
+                },
+                |ui| {
                     save = ui.add(style::primary("保存")).clicked();
                     cancel = ui.button("取消").clicked();
-                });
-            });
+                },
+            );
         });
         if save {
             return match settings_path().and_then(|path| draft.save_at(&path)) {

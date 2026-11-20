@@ -85,7 +85,7 @@ impl Dialog {
             crate::app::style::modal(ctx, egui::Id::new("server-processes")).show(ctx, |ui| {
                 ui.set_width((size.x - 64.0).clamp(420.0, 960.0));
                 ui.horizontal(|ui| {
-                    ui.heading("进程列表");
+                    style::page_title(ui, "进程列表");
                     ui.add_space(6.0);
                     style::badge(ui, &ws.label, style::muted(), style::chrome());
                 });
@@ -167,23 +167,23 @@ impl Dialog {
                 } else if ws.busy() {
                     ui.label("等待当前连接任务完成…");
                 }
-                ui.add_space(8.0);
-                ui.separator();
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(!ws.busy() && ws.server.is_some(), egui::Button::new("刷新"))
-                        .clicked()
-                    {
-                        self.notice.clear();
-                        self.refresh(ws);
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.button("关闭").clicked()
-                    })
-                    .inner
-                })
-                .inner
+                style::dialog_footer_split(
+                    ui,
+                    |ui| {
+                        if ui
+                            .add_enabled(
+                                !ws.busy() && ws.server.is_some(),
+                                egui::Button::new("刷新"),
+                            )
+                            .clicked()
+                        {
+                            self.notice.clear();
+                            self.refresh(ws);
+                        }
+                    },
+                    |ui| ui.button("关闭").clicked(),
+                )
+                .1
             });
         response.inner || response.should_close()
     }

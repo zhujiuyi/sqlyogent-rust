@@ -116,22 +116,22 @@ impl Editor {
         let response =
             crate::app::style::modal(ctx, egui::Id::new("data-sync-job-editor")).show(ctx, |ui| {
                 ui.set_width((bounds.width() - 48.0).clamp(400.0, 700.0));
-                ui.heading(if self.form.source.is_some() {
+                style::page_title(ui, if self.form.source.is_some() {
                     "编辑数据同步作业"
                 } else {
                     "新建数据同步作业"
                 });
-                ui.horizontal_wrapped(|ui| {
-                    for (page, label) in [
+                style::page_tabs(
+                    ui,
+                    &mut self.page,
+                    &[
                         (Page::Source, "源端连接"),
                         (Page::Target, "目标端连接"),
                         (Page::Tables, "同步范围"),
                         (Page::Run, "运行与调度"),
-                    ] {
-                        ui.selectable_value(&mut self.page, page, label);
-                    }
-                });
-                ui.separator();
+                    ],
+                );
+                ui.add_space(8.0);
                 egui::ScrollArea::vertical()
                     .id_salt(("sync-edit", self.page))
                     .max_height((bounds.height() - 190.0).max(220.0))

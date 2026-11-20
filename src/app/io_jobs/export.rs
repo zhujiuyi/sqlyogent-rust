@@ -362,7 +362,7 @@ impl TableForm {
         let mut start = false;
         let modal = style::modal(ctx, egui::Id::new("table-export")).show(ctx, |ui| {
             ui.set_width(form_width(ctx, 570.0));
-            ui.heading("导出数据");
+            style::page_title(ui, "导出数据");
             ui.add_space(4.0);
             let ready = form_scroll(ctx, 120.0)
                 .show(ui, |ui| {

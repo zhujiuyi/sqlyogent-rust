@@ -140,23 +140,23 @@ impl Editor {
         let response =
             crate::app::style::modal(ctx, egui::Id::new("backup-job-editor")).show(ctx, |ui| {
                 ui.set_width((bounds.width() - 48.0).clamp(400.0, 700.0));
-                ui.heading(if self.form.source.is_some() {
+                style::page_title(ui, if self.form.source.is_some() {
                     "编辑备份作业"
                 } else {
                     "新建备份作业"
                 });
-                ui.horizontal_wrapped(|ui| {
-                    for (page, label) in [
+                style::page_tabs(
+                    ui,
+                    &mut self.page,
+                    &[
                         (Page::Connection, "连接"),
                         (Page::Scope, "备份范围"),
                         (Page::Output, "输出与运行"),
                         (Page::Settings, "SQL 选项"),
                         (Page::Mail, "邮件通知"),
-                    ] {
-                        ui.selectable_value(&mut self.page, page, label);
-                    }
-                });
-                ui.separator();
+                    ],
+                );
+                ui.add_space(8.0);
                 let browse = egui::ScrollArea::vertical()
                     .id_salt(("backup-edit", self.page))
                     .max_height((bounds.height() - 205.0).max(210.0))

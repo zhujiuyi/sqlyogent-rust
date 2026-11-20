@@ -1177,6 +1177,7 @@ pub(super) fn show_grid(
                                 },
                             );
                             gutter.context_menu(|ui| {
+                                style::context_menu_ui(ui);
                                 if ui.button("导出全部已读取行…").clicked() {
                                     action = Some(Edit::Export);
                                     ui.close();
@@ -1332,6 +1333,7 @@ pub(super) fn show_grid(
                                     }
                                 }
                                 response.context_menu(|ui| {
+                                    style::context_menu_ui(ui);
                                     if editable && ui.button("编辑单元格").clicked() {
                                         joined_action =
                                             Some(JoinedGridAction::Edit(source_point, None));

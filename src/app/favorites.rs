@@ -541,7 +541,7 @@ impl Favorites {
     fn add_form(&mut self, ui: &mut egui::Ui, form: &mut Add, height: f32) -> bool {
         ui.set_width((ui.ctx().content_rect().width() - 48.0).clamp(400.0, 580.0));
         ui.horizontal(|ui| {
-            ui.heading("添加到收藏夹");
+            style::page_title(ui, "添加到收藏夹");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("刷新收藏夹").clicked() {
                     self.load();
@@ -693,7 +693,7 @@ impl Favorites {
         height: f32,
     ) -> (bool, Option<EditorAction>) {
         ui.set_width(720.0);
-        ui.heading("管理收藏夹");
+        style::page_title(ui, "管理收藏夹");
         let mut close = false;
         ui.horizontal(|ui| {
             if ui.button("刷新收藏夹").clicked() {
@@ -1065,6 +1065,7 @@ fn row_selection(
     let mut action = None;
     if editable {
         row.context_menu(|ui| {
+            style::context_menu_ui(ui);
             if let Some(operation) = entry_actions(ui, id, entry) {
                 action = Some(operation);
                 ui.close();
@@ -1089,7 +1090,7 @@ fn entry_actions(ui: &mut egui::Ui, id: Id, entry: &Entry) -> Option<Operation> 
             item: id,
             destination: entry.parent,
         })
-    } else if ui.button("删除…").clicked() {
+    } else if style::menu_item_danger(ui, "删除…").clicked() {
         Some(Operation::Delete { item: id })
     } else {
         None

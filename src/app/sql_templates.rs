@@ -21,7 +21,7 @@ impl Dialog {
         let modal = crate::app::style::modal(ctx, egui::Id::new("sql-templates")).show(ctx, |ui| {
             let width = (screen.width() - 48.0).clamp(360.0, 680.0);
             ui.set_width(width);
-            ui.heading("插入 SQL 模板");
+            style::page_title(ui, "插入 SQL 模板");
             ui.label(
                 egui::RichText::new("选择常用 SQL 模板预览并直接插入当前光标位置")
                     .small()

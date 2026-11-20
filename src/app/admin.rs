@@ -364,7 +364,7 @@ pub(super) fn dialog(ctx: &egui::Context, state: &mut Option<Admin>, workspaces:
     let response = crate::app::style::modal(ctx, egui::Id::new("administration")).show(ctx, |ui| {
         ui.set_width((ctx.content_rect().width() - 48.0).clamp(420.0, 560.0));
         ui.horizontal(|ui| {
-            ui.heading(if admin.flush_only {
+            style::page_title(ui, if admin.flush_only {
                 "刷新服务器资源"
             } else {
                 "服务器管理"

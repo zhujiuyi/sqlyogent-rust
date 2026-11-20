@@ -606,6 +606,7 @@ fn field_context_menu(
         .id(ui.make_persistent_id(("result-field-menu", id)))
         .open_memory(open.then_some(egui::SetOpenCommand::Bool(true)))
         .show(|ui| {
+            style::context_menu_ui(ui);
             for (label, action, enabled) in [
                 ("在此字段前插入", FieldAction::InsertBefore(id), true),
                 (

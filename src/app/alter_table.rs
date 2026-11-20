@@ -134,7 +134,7 @@ pub(super) fn dialog(
     crate::app::style::modal(ctx, egui::Id::new("alter-table-fields")).show(ctx, |ui| {
         ui.set_width((viewport.width() - 58.0).clamp(1.0, 1000.0));
         ui.horizontal(|ui| {
-            ui.heading("修改表结构");
+            style::page_title(ui, "修改表结构");
             ui.add_space(6.0);
             style::badge(
                 ui,

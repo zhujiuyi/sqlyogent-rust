@@ -107,7 +107,7 @@ impl Form {
         let mut cancel = false;
         let response = style::modal(ctx, egui::Id::new("schema-html")).show(ctx, |ui| {
             ui.set_width(form_width(ctx, 500.0));
-            ui.heading("导出数据库结构说明（HTML）");
+            style::page_title(ui, "导出数据库结构说明（HTML）");
             ui.add(egui::Label::new(egui::RichText::new(&self.schema).color(style::muted())).truncate())
                 .on_hover_text(&self.schema);
             let connected = workspace.server.is_some();

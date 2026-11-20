@@ -1068,7 +1068,7 @@ impl Designer {
         let editing = draft.previous.is_some();
         let modal = style::modal(ctx, egui::Id::new("schema-design-key")).show(ctx, |ui| {
             ui.set_width(450.0);
-            ui.heading(if editing {
+            style::page_title(ui, if editing {
                 "编辑外键"
             } else {
                 "新建外键"
@@ -1208,7 +1208,7 @@ impl Designer {
         let mut close = false;
         let modal = style::modal(ctx, egui::Id::new("schema-design-delete-key")).show(ctx, |ui| {
             ui.set_max_width(480.0);
-            ui.heading("删除外键");
+            style::page_title(ui, "删除外键");
             ui.label(format!(
                 "{}  ·  {} → {}",
                 key.name, key.table.name, key.referenced_table.name
@@ -1791,6 +1791,7 @@ impl Designer {
             ));
         }
         response.context_menu(|ui| {
+            style::context_menu_ui(ui);
             if let Some(index) = self.selected_card.as_ref().and_then(|name| {
                 self.layout
                     .tables

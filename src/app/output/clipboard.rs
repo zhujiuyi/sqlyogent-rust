@@ -61,7 +61,7 @@ impl Dialog {
         let response = style::modal(ctx, egui::Id::new("result-clipboard")).show(ctx, |ui| {
             ui.set_width((ctx.content_rect().width() - 60.0).clamp(360.0, 480.0));
             ui.horizontal(|ui| {
-                ui.heading(self.title);
+                style::page_title(ui, self.title);
                 ui.add_space(6.0);
                 style::badge(
                     ui,

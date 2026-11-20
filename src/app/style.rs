@@ -12,7 +12,6 @@ use std::{
     },
 };
 
-use crate::database::ObjectKind;
 use crate::sql_tools::{EditorTokenKind, editor_tokens};
 
 use super::{
@@ -57,55 +56,55 @@ pub struct Palette {
 }
 
 const LIGHT: Palette = Palette {
-    ink: Color32::from_rgb(15, 23, 42),
-    muted: Color32::from_rgb(91, 107, 130),
-    subtle: Color32::from_rgb(142, 156, 178),
-    accent: Color32::from_rgb(22, 96, 232),
-    accent_soft: Color32::from_rgb(232, 241, 255),
-    accent_tint: Color32::from_rgb(242, 247, 255),
-    cyan: Color32::from_rgb(8, 145, 178),
+    ink: Color32::from_rgb(11, 18, 32),
+    muted: Color32::from_rgb(90, 100, 120),
+    subtle: Color32::from_rgb(137, 146, 166),
+    accent: Color32::from_rgb(37, 99, 235),
+    accent_soft: Color32::from_rgb(234, 240, 255),
+    accent_tint: Color32::from_rgb(244, 247, 255),
+    cyan: Color32::from_rgb(14, 165, 233),
     on_accent: Color32::from_rgb(255, 255, 255),
-    error: Color32::from_rgb(209, 44, 56),
-    error_soft: Color32::from_rgb(254, 240, 241),
-    success: Color32::from_rgb(15, 134, 92),
-    success_soft: Color32::from_rgb(234, 250, 243),
-    warning: Color32::from_rgb(176, 96, 12),
+    error: Color32::from_rgb(225, 29, 72),
+    error_soft: Color32::from_rgb(253, 239, 243),
+    success: Color32::from_rgb(22, 163, 74),
+    success_soft: Color32::from_rgb(234, 248, 240),
+    warning: Color32::from_rgb(217, 119, 6),
     surface: Color32::from_rgb(255, 255, 255),
-    panel: Color32::from_rgb(246, 248, 251),
-    chrome: Color32::from_rgb(237, 241, 247),
-    stripe: Color32::from_rgb(249, 251, 253),
-    border: Color32::from_rgb(223, 230, 240),
-    border_subtle: Color32::from_rgb(236, 240, 246),
-    border_strong: Color32::from_rgb(192, 204, 222),
-    backdrop: [15, 23, 42, 104],
-    shadow_alpha: 28,
-    number: Color32::from_rgb(124, 58, 237),
+    panel: Color32::from_rgb(245, 247, 251),
+    chrome: Color32::from_rgb(236, 239, 245),
+    stripe: Color32::from_rgb(249, 250, 253),
+    border: Color32::from_rgb(223, 228, 238),
+    border_subtle: Color32::from_rgb(235, 239, 246),
+    border_strong: Color32::from_rgb(196, 204, 219),
+    backdrop: [10, 18, 40, 110],
+    shadow_alpha: 26,
+    number: Color32::from_rgb(124, 92, 230),
 };
 
 const DARK: Palette = Palette {
-    ink: Color32::from_rgb(230, 237, 247),
-    muted: Color32::from_rgb(139, 155, 180),
-    subtle: Color32::from_rgb(94, 112, 138),
-    accent: Color32::from_rgb(59, 130, 246),
-    accent_soft: Color32::from_rgb(24, 44, 78),
-    accent_tint: Color32::from_rgb(20, 32, 54),
-    cyan: Color32::from_rgb(34, 211, 238),
-    on_accent: Color32::from_rgb(255, 255, 255),
+    ink: Color32::from_rgb(231, 236, 245),
+    muted: Color32::from_rgb(152, 163, 184),
+    subtle: Color32::from_rgb(112, 123, 144),
+    accent: Color32::from_rgb(124, 156, 255),
+    accent_soft: Color32::from_rgb(27, 39, 69),
+    accent_tint: Color32::from_rgb(19, 26, 43),
+    cyan: Color32::from_rgb(56, 189, 248),
+    on_accent: Color32::from_rgb(7, 17, 37),
     error: Color32::from_rgb(248, 113, 113),
-    error_soft: Color32::from_rgb(56, 23, 29),
-    success: Color32::from_rgb(52, 211, 153),
-    success_soft: Color32::from_rgb(16, 46, 38),
+    error_soft: Color32::from_rgb(58, 27, 34),
+    success: Color32::from_rgb(74, 222, 128),
+    success_soft: Color32::from_rgb(20, 44, 33),
     warning: Color32::from_rgb(251, 191, 36),
-    surface: Color32::from_rgb(17, 22, 34),
-    panel: Color32::from_rgb(12, 16, 26),
-    chrome: Color32::from_rgb(9, 12, 20),
-    stripe: Color32::from_rgb(21, 28, 43),
-    border: Color32::from_rgb(35, 46, 66),
-    border_subtle: Color32::from_rgb(26, 35, 51),
-    border_strong: Color32::from_rgb(56, 74, 104),
-    backdrop: [3, 6, 14, 160],
-    shadow_alpha: 72,
-    number: Color32::from_rgb(192, 132, 252),
+    surface: Color32::from_rgb(22, 27, 36),
+    panel: Color32::from_rgb(14, 18, 25),
+    chrome: Color32::from_rgb(9, 12, 17),
+    stripe: Color32::from_rgb(27, 33, 44),
+    border: Color32::from_rgb(42, 50, 66),
+    border_subtle: Color32::from_rgb(32, 38, 51),
+    border_strong: Color32::from_rgb(60, 71, 92),
+    backdrop: [2, 5, 14, 170],
+    shadow_alpha: 78,
+    number: Color32::from_rgb(180, 156, 255),
 };
 
 pub fn theme() -> ThemeMode {
@@ -196,6 +195,155 @@ pub fn pane(margin: egui::Margin) -> egui::Frame {
 
 pub fn chrome_bar(margin: egui::Margin) -> egui::Frame {
     egui::Frame::new().fill(chrome()).inner_margin(margin)
+}
+
+/// 在两个颜色之间做平滑插值，用于悬停与选中态的轻量过渡。
+pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let channel = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
+    Color32::from_rgba_unmultiplied(
+        channel(a.r(), b.r()),
+        channel(a.g(), b.g()),
+        channel(a.b(), b.b()),
+        channel(a.a(), b.a()),
+    )
+}
+
+/// 带内嵌搜索图标的筛选输入框，保持与主题一致的细边框和柔和底色。
+pub fn search_field(ui: &mut egui::Ui, text: &mut String, hint: &str) -> egui::Response {
+    let p = palette();
+    egui::Frame::new()
+        .fill(p.surface)
+        .stroke(Stroke::new(1.0_f32, p.border))
+        .corner_radius(CornerRadius::same(9))
+        .inner_margin(egui::Margin::symmetric(10, 3))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                let (icon_rect, _) =
+                    ui.allocate_exact_size(egui::vec2(13.0, 13.0), egui::Sense::hover());
+                paint_search_icon(ui.painter(), icon_rect, p.subtle);
+                let response = ui.add(
+                    egui::TextEdit::singleline(text)
+                        .hint_text(hint)
+                        .frame(false)
+                        .margin(egui::Margin::symmetric(0, 4))
+                        .desired_width((ui.available_width() - 18.0).max(40.0)),
+                );
+                if !text.is_empty()
+                    && ui
+                        .add(
+                            egui::Label::new(RichText::new("×").size(15.0).color(p.subtle))
+                                .sense(egui::Sense::click()),
+                        )
+                        .on_hover_text("清空筛选")
+                        .clicked()
+                {
+                    text.clear();
+                }
+                response
+            })
+            .inner
+        })
+        .inner
+}
+
+fn paint_search_icon(painter: &egui::Painter, rect: egui::Rect, color: Color32) {
+    let center = rect.center() - egui::vec2(0.8, 0.8);
+    let stroke = Stroke::new(1.35_f32, color);
+    painter.circle_stroke(center, 4.1, stroke);
+    painter.line_segment(
+        [
+            center + egui::vec2(2.9, 2.9),
+            center + egui::vec2(5.4, 5.4),
+        ],
+        Stroke::new(1.6_f32, color),
+    );
+}
+
+/// 连接工作区页签：低噪音底色、细描边与底部主题条，悬停时平滑过渡。
+pub fn workspace_tab(
+    ui: &mut egui::Ui,
+    id_salt: impl std::hash::Hash,
+    label: &str,
+    selected: bool,
+    dot_color: Color32,
+    connected: bool,
+) -> egui::Response {
+    let p = palette();
+    let font = FontId::proportional(13.5);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_owned(), font.clone(), p.ink);
+    let width = (13.0 + 13.0 + galley.size().x + 13.0).max(82.0);
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(width, 30.0), egui::Sense::click());
+    let hover_t = ui.ctx().animate_bool_with_time(
+        ui.make_persistent_id(("workspace-tab-hover", &id_salt)),
+        response.hovered() && !selected,
+        0.16,
+    );
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        let fill = if selected {
+            p.surface
+        } else {
+            mix(Color32::TRANSPARENT, p.accent_tint, hover_t)
+        };
+        painter.rect(
+            rect,
+            CornerRadius::same(8),
+            fill,
+            Stroke::NONE,
+            egui::StrokeKind::Inside,
+        );
+        if selected {
+            let bar = egui::Rect::from_min_max(
+                egui::pos2(rect.left() + 8.0, rect.bottom() - 2.0),
+                egui::pos2(rect.right() - 8.0, rect.bottom()),
+            );
+            painter.rect_filled(bar, CornerRadius::same(1), p.accent);
+        }
+        let dot_center = egui::pos2(rect.left() + 13.0, rect.center().y);
+        if connected {
+            painter.circle_filled(dot_center, 4.0, dot_color.gamma_multiply(0.16));
+            painter.circle_filled(dot_center, 2.3, dot_color);
+        } else {
+            painter.circle_stroke(dot_center, 2.4, Stroke::new(1.2_f32, dot_color));
+        }
+        let text_color = if selected {
+            p.ink
+        } else {
+            mix(p.muted, p.ink, hover_t)
+        };
+        let text = painter.layout_no_wrap(label.to_owned(), font.clone(), text_color);
+        let text_pos = egui::pos2(
+            rect.left() + 26.0,
+            rect.center().y - text.size().y * 0.5,
+        );
+        painter.galley(text_pos, text.clone(), text_color);
+        if selected {
+            let bold = painter.layout_no_wrap(label.to_owned(), font, text_color);
+            painter.galley(text_pos + egui::vec2(0.35, 0.0), bold, text_color);
+        }
+    }
+    response
+}
+
+/// 统一页面/弹窗标题：左侧短主题色标记 + 加粗标题，让所有二级与三级页面拥有同一识别点。
+pub fn page_title(ui: &mut egui::Ui, text: impl Into<RichText>) -> egui::Response {
+    let p = palette();
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 7.0;
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(3.0, 18.0), egui::Sense::hover());
+        if ui.is_rect_visible(rect) {
+            ui.painter()
+                .rect_filled(rect, CornerRadius::same(2), p.accent);
+        }
+        ui.heading(text)
+    })
+    .inner
 }
 
 pub fn card(margin: egui::Margin) -> egui::Frame {
@@ -329,6 +477,25 @@ pub fn dialog_footer<R>(ui: &mut egui::Ui, right: impl FnOnce(&mut egui::Ui) -> 
     .inner
 }
 
+/// 带左侧辅助操作的标准弹窗底栏（如恢复默认、刷新），右侧仍放主次操作。
+pub fn dialog_footer_split<R1, R2>(
+    ui: &mut egui::Ui,
+    leading: impl FnOnce(&mut egui::Ui) -> R1,
+    trailing: impl FnOnce(&mut egui::Ui) -> R2,
+) -> (R1, R2) {
+    ui.add_space(10.0);
+    ui.separator();
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        let left = leading(ui);
+        let right = ui
+            .with_layout(egui::Layout::right_to_left(egui::Align::Center), trailing)
+            .inner;
+        (left, right)
+    })
+    .inner
+}
+
 /// 在禁用状态下自动呈现清爽中性灰的主按钮，避免发白低对比度。
 pub fn primary_enabled(enabled: bool, label: &str) -> egui::Button<'_> {
     let p = palette();
@@ -374,6 +541,38 @@ pub(super) fn modal(ctx: &egui::Context, id: egui::Id) -> egui::Modal {
         .backdrop_color(Color32::from_rgba_unmultiplied(r, g, b, a))
 }
 
+/// 设置页与作业编辑器的统一分段页签栏：柔和底色、细描边、选中态主题色。
+pub fn page_tabs<T: Copy + PartialEq>(ui: &mut egui::Ui, current: &mut T, tabs: &[(T, &str)]) {
+    let p = palette();
+    egui::Frame::new()
+        .fill(p.panel)
+        .stroke(Stroke::new(1.0_f32, p.border_subtle))
+        .corner_radius(CornerRadius::same(9))
+        .inner_margin(egui::Margin::symmetric(6, 4))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.horizontal_wrapped(|ui| {
+                for (page, label) in tabs {
+                    let selected = *current == *page;
+                    let text = if selected {
+                        RichText::new(*label).strong().color(p.accent)
+                    } else {
+                        RichText::new(*label).color(p.muted)
+                    };
+                    if tab_button(ui, selected, text, true).clicked() && !selected {
+                        *current = *page;
+                    }
+                }
+            });
+        });
+}
+
+/// 右键菜单与下拉菜单统一的内边距和行距，让密集命令列表更易扫读。
+pub fn context_menu_ui(ui: &mut egui::Ui) {
+    ui.spacing_mut().button_padding = egui::vec2(6.0, 4.0);
+    ui.spacing_mut().item_spacing.y = 2.0;
+}
+
 pub(super) fn menu(ui: &mut egui::Ui, label: &str, entries: impl FnOnce(&mut egui::Ui)) {
     ui.scope(|ui| {
         let p = palette();
@@ -389,7 +588,8 @@ pub(super) fn menu(ui: &mut egui::Ui, label: &str, entries: impl FnOnce(&mut egu
         widgets.open.bg_fill = p.accent_soft;
         widgets.open.bg_stroke = Stroke::NONE;
         widgets.open.fg_stroke.color = p.accent;
-        ui.menu_button(RichText::new(label).size(13.5), |ui| {
+        ui.menu_button(RichText::new(label).size(14.0).color(p.ink), |ui| {
+            context_menu_ui(ui);
             let height = (ui.ctx().content_rect().height() - 108.0).max(76.0);
             egui::ScrollArea::vertical()
                 .id_salt(("command-menu", label))
@@ -399,12 +599,179 @@ pub(super) fn menu(ui: &mut egui::Ui, label: &str, entries: impl FnOnce(&mut egu
     });
 }
 
+/// 菜单中的破坏性操作：正文使用错误色，悬停时给出柔和红色底，避免误触。
+pub fn menu_item_danger(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    let p = palette();
+    ui.scope(|ui| {
+        let widgets = &mut ui.visuals_mut().widgets;
+        widgets.hovered.weak_bg_fill = p.error_soft;
+        widgets.hovered.bg_fill = p.error_soft;
+        widgets.active.weak_bg_fill = p.error_soft;
+        widgets.active.bg_fill = p.error_soft;
+        ui.button(RichText::new(label).color(p.error))
+    })
+    .inner
+}
+
+/// 无框下拉按钮：用于工具栏与状态栏中的次级菜单，默认安静、悬停才出现底色。
+pub fn ghost_menu_button(
+    ui: &mut egui::Ui,
+    label: RichText,
+    entries: impl FnOnce(&mut egui::Ui),
+) -> egui::Response {
+    let p = palette();
+    ui.scope(|ui| {
+        let widgets = &mut ui.visuals_mut().widgets;
+        widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
+        widgets.inactive.bg_fill = Color32::TRANSPARENT;
+        widgets.inactive.bg_stroke = Stroke::NONE;
+        widgets.hovered.weak_bg_fill = p.accent_tint;
+        widgets.hovered.bg_fill = p.accent_tint;
+        widgets.hovered.bg_stroke = Stroke::NONE;
+        widgets.open.weak_bg_fill = p.accent_soft;
+        widgets.open.bg_fill = p.accent_soft;
+        widgets.open.bg_stroke = Stroke::NONE;
+        widgets.open.fg_stroke.color = p.accent;
+        ui.menu_button(label, entries).response
+    })
+    .inner
+}
+
+/// 工具栏次级操作：默认无描边，悬停时出现柔和主题底，减少成排方框按钮的陈旧感。
+pub fn ghost_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    let p = palette();
+    let text_color = if ui.is_enabled() { p.ink } else { p.subtle };
+    ui.scope(|ui| {
+        let widgets = &mut ui.visuals_mut().widgets;
+        widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
+        widgets.inactive.bg_fill = Color32::TRANSPARENT;
+        widgets.inactive.bg_stroke = Stroke::NONE;
+        widgets.hovered.weak_bg_fill = p.accent_tint;
+        widgets.hovered.bg_fill = p.accent_tint;
+        widgets.hovered.bg_stroke = Stroke::NONE;
+        ui.add(
+            egui::Button::new(RichText::new(label).color(text_color))
+                .corner_radius(CornerRadius::same(7))
+                .min_size(egui::vec2(0.0, 28.0)),
+        )
+    })
+    .inner
+}
+
+pub fn ghost_button_enabled(ui: &mut egui::Ui, label: &str, enabled: bool) -> egui::Response {
+    ui.add_enabled_ui(enabled, |ui| ghost_button(ui, label)).inner
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActionTone {
+    Primary,
+    Secondary,
+    Danger,
+}
+
+/// 图标 + 文字的明确操作按钮：用于编辑区「执行 / 批量执行 / 格式化」，
+/// 通过实体按钮轮廓与图标和上方页签栏拉开差异，避免被误读为页签。
+pub fn action_button(
+    ui: &mut egui::Ui,
+    icon: ToolbarIcon,
+    label: &str,
+    tone: ActionTone,
+    enabled: bool,
+) -> egui::Response {
+    let p = palette();
+    let font = FontId::proportional(13.5);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_owned(), font, p.ink);
+    let icon_w = 14.0;
+    let gap = 6.0;
+    let pad = 10.0;
+    let width = (pad * 2.0 + icon_w + gap + galley.size().x).max(72.0);
+    let height = 28.0;
+    let sense = if enabled {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), sense);
+    let hover_t = ui.ctx().animate_bool_with_time(
+        response.id.with("action-button-hover"),
+        enabled && response.hovered(),
+        0.14,
+    );
+    if ui.is_rect_visible(rect) {
+        let active = enabled && response.is_pointer_button_down_on();
+        let (fill, stroke, text_col, icon_col) = if !enabled {
+            (p.panel, p.border_subtle, p.subtle, p.subtle)
+        } else {
+            match tone {
+                ActionTone::Primary => {
+                    let fill = if active {
+                        mix(p.accent, p.ink, 0.16)
+                    } else {
+                        mix(p.accent, p.on_accent, 0.10 * hover_t)
+                    };
+                    (fill, Color32::TRANSPARENT, p.on_accent, p.on_accent)
+                }
+                ActionTone::Danger => {
+                    let fill = if active {
+                        mix(p.error, p.ink, 0.14)
+                    } else {
+                        mix(p.error, p.on_accent, 0.10 * hover_t)
+                    };
+                    (fill, Color32::TRANSPARENT, p.on_accent, p.on_accent)
+                }
+                ActionTone::Secondary => {
+                    let fill = if active {
+                        p.accent_soft
+                    } else {
+                        mix(p.accent_tint, p.accent_soft, hover_t)
+                    };
+                    let stroke = if active {
+                        p.accent
+                    } else {
+                        mix(p.border, p.accent, 0.45 * hover_t)
+                    };
+                    (fill, stroke, p.ink, mix(p.accent, p.ink, 0.15 * hover_t))
+                }
+            }
+        };
+        let painter = ui.painter();
+        painter.rect(
+            rect,
+            CornerRadius::same(8),
+            fill,
+            if stroke == Color32::TRANSPARENT {
+                Stroke::NONE
+            } else {
+                Stroke::new(1.0_f32, stroke)
+            },
+            egui::StrokeKind::Inside,
+        );
+        let icon_rect = egui::Rect::from_center_size(
+            egui::pos2(rect.left() + pad + icon_w * 0.5, rect.center().y),
+            egui::vec2(icon_w, icon_w),
+        );
+        paint_toolbar_icon(painter, icon_rect, icon, icon_col);
+        painter.galley(
+            egui::pos2(
+                icon_rect.right() + gap,
+                rect.center().y - galley.size().y * 0.5,
+            ),
+            galley,
+            text_col,
+        );
+    }
+    response
+}
+
 pub fn primary(label: &str) -> egui::Button<'_> {
     let p = palette();
     egui::Button::new(RichText::new(label).strong().color(p.on_accent))
         .fill(p.accent)
         .stroke(Stroke::NONE)
-        .corner_radius(CornerRadius::same(7))
+        .corner_radius(CornerRadius::same(8))
+        .min_size(egui::vec2(0.0, 28.0))
 }
 
 pub fn danger(label: &str) -> egui::Button<'_> {
@@ -412,7 +779,8 @@ pub fn danger(label: &str) -> egui::Button<'_> {
     egui::Button::new(RichText::new(label).strong().color(p.on_accent))
         .fill(p.error)
         .stroke(Stroke::NONE)
-        .corner_radius(CornerRadius::same(7))
+        .corner_radius(CornerRadius::same(8))
+        .min_size(egui::vec2(0.0, 28.0))
 }
 
 /// 精致的胶囊标签（用于错误码、状态、计数、快捷键键帽等）。
@@ -477,19 +845,6 @@ pub fn draw_status_dot(ui: &mut egui::Ui, color: Color32, connected: bool) {
     }
 }
 
-/// 按数据库对象类型返回协调的语义标识色。
-pub fn object_kind_color(kind: ObjectKind) -> Color32 {
-    let p = palette();
-    match kind {
-        ObjectKind::Table => p.accent,
-        ObjectKind::View => p.cyan,
-        ObjectKind::Procedure => p.number,
-        ObjectKind::Function => p.success,
-        ObjectKind::Trigger => p.warning,
-        ObjectKind::Event => p.error,
-    }
-}
-
 /// 工具栏通用矢量图标枚举，确保高 DPI 下锐利清晰且不依赖系统字形。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ToolbarIcon {
@@ -508,6 +863,9 @@ pub enum ToolbarIcon {
     Export,
     Save,
     Cancel,
+    Run,
+    RunBatch,
+    Format,
 }
 
 /// 在指定矩形区域居中绘制 14×14px 高辨识度矢量图标。
@@ -715,6 +1073,56 @@ pub fn paint_toolbar_icon(painter: &egui::Painter, rect: egui::Rect, icon: Toolb
             painter.line_segment([egui::pos2(c.x - 4.0, c.y - 4.0), egui::pos2(c.x + 4.0, c.y + 4.0)], bold);
             painter.line_segment([egui::pos2(c.x + 4.0, c.y - 4.0), egui::pos2(c.x - 4.0, c.y + 4.0)], bold);
         }
+        ToolbarIcon::Run => {
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    egui::pos2(c.x - 3.4, c.y - 5.4),
+                    egui::pos2(c.x + 5.4, c.y),
+                    egui::pos2(c.x - 3.4, c.y + 5.4),
+                ],
+                color,
+                Stroke::NONE,
+            ));
+        }
+        ToolbarIcon::RunBatch => {
+            let chevron = Stroke::new(1.8_f32, color);
+            for offset in [-2.2_f32, 3.2] {
+                painter.add(egui::Shape::line(
+                    vec![
+                        egui::pos2(c.x - 1.6 + offset, c.y - 4.4),
+                        egui::pos2(c.x + 2.2 + offset, c.y),
+                        egui::pos2(c.x - 1.6 + offset, c.y + 4.4),
+                    ],
+                    chevron,
+                ));
+            }
+        }
+        ToolbarIcon::Format => {
+            for (dy, half_w) in [(-4.4, 4.6), (0.0, 3.4), (4.4, 5.2)] {
+                painter.line_segment(
+                    [
+                        egui::pos2(c.x - 5.6, c.y + dy),
+                        egui::pos2(c.x - 5.6 + half_w * 2.0, c.y + dy),
+                    ],
+                    s,
+                );
+            }
+            let star = Stroke::new(1.1_f32, color);
+            painter.add(egui::Shape::line(
+                vec![
+                    egui::pos2(c.x + 5.0, c.y - 5.6),
+                    egui::pos2(c.x + 5.0, c.y - 2.4),
+                ],
+                star,
+            ));
+            painter.add(egui::Shape::line(
+                vec![
+                    egui::pos2(c.x + 3.7, c.y - 4.0),
+                    egui::pos2(c.x + 6.3, c.y - 4.0),
+                ],
+                star,
+            ));
+        }
     }
 }
 
@@ -749,39 +1157,43 @@ pub fn icon_button_tinted(
     } else {
         egui::Sense::hover()
     };
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 24.0), sense);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 28.0), sense);
+    let hover_t = ui.ctx().animate_bool_with_time(
+        response.id.with("icon-button-hover"),
+        enabled && response.hovered(),
+        0.14,
+    );
     if ui.is_rect_visible(rect) {
-        let hovered = enabled && response.hovered();
         let active = enabled && response.is_pointer_button_down_on();
         let (fill, stroke_col, icon_col) = if !enabled {
             (p.panel, p.border_subtle, p.subtle)
         } else if primary {
-            let fill = if active || hovered {
+            let fill = if active {
                 p.accent.gamma_multiply(0.88)
             } else {
-                p.accent
+                mix(p.accent, p.accent.gamma_multiply(0.86), hover_t)
             };
             (fill, fill, p.on_accent)
         } else {
-            let fg = tint.unwrap_or(p.ink);
+            let base = tint.unwrap_or(p.muted);
+            let hover_target = tint.unwrap_or(p.ink);
+            let fg = mix(base, hover_target, hover_t);
             let fill = if active {
                 p.accent_soft
-            } else if hovered {
-                p.accent_tint
             } else {
-                p.surface
+                mix(Color32::TRANSPARENT, p.accent_tint, hover_t)
             };
-            let border_col = if active || hovered {
-                tint.unwrap_or(p.accent)
+            let border_col = if active {
+                p.accent_soft
             } else {
-                p.border
+                Color32::TRANSPARENT
             };
             (fill, border_col, fg)
         };
         let painter = ui.painter();
         painter.rect(
             rect,
-            CornerRadius::same(6),
+            CornerRadius::same(7),
             fill,
             Stroke::new(1.0_f32, stroke_col),
             egui::StrokeKind::Inside,
@@ -815,7 +1227,7 @@ pub fn icon_menu_button(
     } else {
         egui::Sense::hover()
     };
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 24.0), sense);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 28.0), sense);
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response));
     if ui.is_rect_visible(rect) {
         let hovered = enabled && response.hovered();
@@ -824,14 +1236,14 @@ pub fn icon_menu_button(
         } else if open {
             (p.accent_soft, p.accent, p.accent)
         } else if hovered {
-            (p.accent_tint, p.accent, p.ink)
+            (p.accent_tint, Color32::TRANSPARENT, p.ink)
         } else {
-            (p.surface, p.border, p.ink)
+            (Color32::TRANSPARENT, Color32::TRANSPARENT, p.muted)
         };
         let painter = ui.painter();
         painter.rect(
             rect,
-            CornerRadius::same(6),
+            CornerRadius::same(7),
             fill,
             Stroke::new(1.0_f32, border_col),
             egui::StrokeKind::Inside,
@@ -859,58 +1271,54 @@ pub fn icon_menu_button(
     }
 }
 
-/// 绘制顶部栏一键切换「晴海浅色 / 深海暗夜」的主题按钮。
+/// 绘制顶部栏一键切换浅色与深色主题的按钮。
 pub fn theme_toggle_button(ui: &mut egui::Ui) -> egui::Response {
     let dark = is_dark();
     let p = palette();
-    let label = if dark { "浅色" } else { "深色" };
-    let desired = egui::vec2(62.0, 27.0);
+    let desired = egui::vec2(30.0, 30.0);
     let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::click());
+    let hover_t = ui.ctx().animate_bool_with_time(
+        response.id.with("theme-toggle-hover"),
+        response.hovered(),
+        0.16,
+    );
     if ui.is_rect_visible(rect) {
-        let hovered = response.hovered();
-        let fill = if hovered { p.accent_tint } else { p.panel };
-        let stroke = Stroke::new(
-            1.0_f32,
-            if hovered { p.border_strong } else { p.border },
-        );
+        let fill = mix(Color32::TRANSPARENT, p.accent_tint, hover_t);
+        let stroke = Stroke::new(1.0_f32, mix(Color32::TRANSPARENT, p.border, hover_t));
         let painter = ui.painter();
         painter.rect(
             rect,
-            CornerRadius::same(7),
+            CornerRadius::same(8),
             fill,
             stroke,
             egui::StrokeKind::Inside,
         );
-        // 绘制小太阳或弯月图标
-        let icon_center = egui::pos2(rect.left() + 14.0, rect.center().y);
+        let icon_center = rect.center();
         if dark {
             let sun = Color32::from_rgb(251, 191, 36);
-            painter.circle_filled(icon_center, 3.3, sun);
+            painter.circle_filled(icon_center, 3.6, sun);
             for step in 0..8 {
                 let angle = step as f32 * std::f32::consts::FRAC_PI_4;
                 let dir = egui::vec2(angle.cos(), angle.sin());
                 painter.line_segment(
-                    [icon_center + dir * 4.8, icon_center + dir * 6.3],
-                    Stroke::new(1.2_f32, sun),
+                    [icon_center + dir * 5.4, icon_center + dir * 7.0],
+                    Stroke::new(1.3_f32, sun),
                 );
             }
         } else {
-            let moon = p.accent;
-            painter.circle_filled(icon_center, 4.6, moon);
-            painter.circle_filled(icon_center + egui::vec2(2.3, -1.6), 3.6, fill);
+            let moon = mix(p.muted, p.ink, hover_t);
+            painter.circle_filled(icon_center, 5.0, moon);
+            painter.circle_filled(
+                icon_center + egui::vec2(2.5, -1.8),
+                4.0,
+                mix(p.surface, p.accent_tint, hover_t),
+            );
         }
-        painter.text(
-            egui::pos2(rect.left() + 26.0, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            label,
-            FontId::proportional(12.5),
-            if hovered { p.ink } else { p.muted },
-        );
     }
     response.on_hover_text(if dark {
-        "切换为晴海浅色主题"
+        "切换为浅色主题"
     } else {
-        "切换为深海暗夜主题"
+        "切换为深色主题"
     })
 }
 
@@ -921,20 +1329,19 @@ pub fn editor_tab(
     id_salt: impl std::hash::Hash,
     label: &str,
     selected: bool,
-    accent_color: Color32,
+    _accent_color: Color32,
     closable: bool,
     close_tooltip: &str,
 ) -> (egui::Response, bool) {
     let p = palette();
-    let font = FontId::proportional(13.0);
+    let font = FontId::proportional(13.5);
     let text_color = if selected { p.ink } else { p.muted };
     let galley = ui.painter().layout_no_wrap(label.to_owned(), font, text_color);
     let text_w = galley.size().x;
-    let left_pad = 10.0;
-    let dot_space = 13.0;
-    let close_space = if closable { 22.0 } else { 10.0 };
-    let width = (left_pad + dot_space + text_w + close_space).max(74.0);
-    let height = 29.0;
+    let left_pad = 12.0;
+    let close_space = if closable { 24.0 } else { 12.0 };
+    let width = (left_pad + text_w + close_space).max(74.0);
+    let height = 32.0;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
     let visual_rect = if selected {
         rect
@@ -961,77 +1368,49 @@ pub fn editor_tab(
     let hovered = response.hovered() || close_resp.as_ref().is_some_and(egui::Response::hovered);
     let close_hovered = close_resp.as_ref().is_some_and(egui::Response::hovered);
 
+    let hover_t = ui.ctx().animate_bool_with_time(
+        ui.make_persistent_id(("editor-tab-hover", &id_salt)),
+        hovered && !selected,
+        0.16,
+    );
     if ui.is_rect_visible(visual_rect) {
         let painter = ui.painter();
         let radius = CornerRadius {
-            nw: 7,
-            ne: 7,
+            nw: 8,
+            ne: 8,
             sw: 0,
             se: 0,
         };
         let fill = if selected {
             p.surface
-        } else if hovered {
-            p.surface
         } else {
-            p.panel
-        };
-        let border_col = if selected {
-            p.border
-        } else if hovered {
-            p.border_strong
-        } else {
-            p.border_subtle
+            mix(Color32::TRANSPARENT, p.surface, hover_t)
         };
         painter.rect(
             visual_rect,
             radius,
             fill,
-            Stroke::new(1.0_f32, border_col),
+            Stroke::NONE,
             egui::StrokeKind::Inside,
         );
         if selected {
-            // 激活页签顶部主题色条，并抹去底部边线使其与下方编辑区融为一体
-            let top_bar = egui::Rect::from_min_max(
-                egui::pos2(visual_rect.left() + 6.0, visual_rect.top()),
-                egui::pos2(visual_rect.right() - 6.0, visual_rect.top() + 2.5),
+            let bottom_bar = egui::Rect::from_min_max(
+                egui::pos2(visual_rect.left() + 8.0, visual_rect.bottom() - 2.0),
+                egui::pos2(visual_rect.right() - 8.0, visual_rect.bottom()),
             );
-            painter.rect_filled(top_bar, CornerRadius::same(1), accent_color);
-            painter.hline(
-                (visual_rect.left() + 1.0)..=(visual_rect.right() - 1.0),
-                visual_rect.bottom(),
-                Stroke::new(2.0_f32, p.surface),
-            );
+            painter.rect_filled(bottom_bar, CornerRadius::same(1), p.accent);
         }
-        // 左侧类型色点
-        let dot_center = egui::pos2(visual_rect.left() + left_pad + 3.0, visual_rect.center().y);
-        let dot_col = if selected {
-            accent_color
-        } else {
-            accent_color.gamma_multiply(0.55)
-        };
-        painter.circle_filled(dot_center, 3.0, dot_col);
-        // 页签标题（选中加粗效果通过更深前景色与轻微重绘体现）
         let text_pos = egui::pos2(
-            visual_rect.left() + left_pad + dot_space,
+            visual_rect.left() + left_pad,
             visual_rect.center().y - galley.size().y * 0.5,
         );
         let final_color = if selected || hovered { p.ink } else { p.muted };
         let final_galley = ui.painter().layout_no_wrap(
             label.to_owned(),
-            FontId::proportional(13.0),
+            FontId::proportional(13.5),
             final_color,
         );
         painter.galley(text_pos, final_galley, final_color);
-        if selected {
-            // 细微加粗增强选中态辨识度
-            let bold_galley = ui.painter().layout_no_wrap(
-                label.to_owned(),
-                FontId::proportional(13.0),
-                final_color.gamma_multiply(0.45),
-            );
-            painter.galley(text_pos + egui::vec2(0.45, 0.0), bold_galley, final_color);
-        }
         // 内置关闭图标（选中态常显，未选中态悬停显现）
         if closable && (selected || hovered) {
             if close_hovered {
@@ -1056,48 +1435,33 @@ pub fn editor_tab(
     (response, close_clicked)
 }
 
-/// 现代 IDE 风格页签按钮：激活态悬浮纯色背景 + 顶部/底部主题色条。
+/// 结果/设置面板的分段页签：激活态使用柔和主题底色，避免整块白底与重复描边。
 pub fn tab_button(
     ui: &mut egui::Ui,
     selected: bool,
     text: impl Into<egui::WidgetText>,
-    bottom_indicator: bool,
+    _bottom_indicator: bool,
 ) -> egui::Response {
     let p = palette();
-    let fill = if selected {
-        p.surface
-    } else {
-        Color32::TRANSPARENT
-    };
-    let stroke = if selected {
-        Stroke::new(1.0_f32, p.border)
-    } else {
-        Stroke::NONE
-    };
-    let response = ui.add(
-        egui::Button::new(text)
-            .fill(fill)
-            .stroke(stroke)
+    ui.scope(|ui| {
+        let widgets = &mut ui.visuals_mut().widgets;
+        widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
+        widgets.inactive.bg_fill = Color32::TRANSPARENT;
+        widgets.inactive.bg_stroke = Stroke::NONE;
+        widgets.hovered.weak_bg_fill = p.accent_tint;
+        widgets.hovered.bg_fill = p.accent_tint;
+        widgets.hovered.bg_stroke = Stroke::NONE;
+        let mut button = egui::Button::new(text)
             .corner_radius(CornerRadius::same(7))
-            .min_size(egui::vec2(0.0, 27.0)),
-    );
-    if selected {
-        let rect = response.rect;
-        let bar = if bottom_indicator {
-            egui::Rect::from_min_max(
-                egui::pos2(rect.left() + 8.0, rect.bottom() - 2.2),
-                egui::pos2(rect.right() - 8.0, rect.bottom() - 0.2),
-            )
-        } else {
-            egui::Rect::from_min_max(
-                egui::pos2(rect.left() + 8.0, rect.top() + 0.5),
-                egui::pos2(rect.right() - 8.0, rect.top() + 2.5),
-            )
-        };
-        ui.painter()
-            .rect_filled(bar, CornerRadius::same(1), p.accent);
-    }
-    response
+            .min_size(egui::vec2(0.0, 28.0));
+        if selected {
+            button = button
+                .fill(p.accent_soft)
+                .stroke(Stroke::new(1.0_f32, mix(p.border, p.accent, 0.22)));
+        }
+        ui.add(button)
+    })
+    .inner
 }
 
 pub fn apply(ctx: &egui::Context) {
@@ -1151,12 +1515,12 @@ pub fn apply(ctx: &egui::Context) {
 
     widgets.inactive.bg_fill = p.surface;
     widgets.inactive.weak_bg_fill = p.surface;
-    widgets.inactive.bg_stroke = Stroke::new(1.0_f32, p.border_strong);
+    widgets.inactive.bg_stroke = Stroke::new(1.0_f32, p.border);
     widgets.inactive.fg_stroke.color = p.ink;
 
     widgets.hovered.bg_fill = p.accent_tint;
     widgets.hovered.weak_bg_fill = p.accent_tint;
-    widgets.hovered.bg_stroke = Stroke::new(1.0_f32, p.accent);
+    widgets.hovered.bg_stroke = Stroke::new(1.0_f32, p.border_strong);
     widgets.hovered.fg_stroke.color = p.ink;
     widgets.hovered.expansion = 0.0;
 
@@ -1179,14 +1543,15 @@ pub fn apply(ctx: &egui::Context) {
         &mut widgets.active,
         &mut widgets.open,
     ] {
-        widget.corner_radius = CornerRadius::same(4);
+        widget.corner_radius = CornerRadius::same(7);
     }
     ctx.set_visuals(visuals);
     ctx.style_mut(|style| {
-        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        style.spacing.button_padding = egui::vec2(10.0, 5.0);
-        style.spacing.interact_size.y = 27.0;
-        style.spacing.window_margin = egui::Margin::same(16);
+        style.animation_time = 0.16;
+        style.spacing.item_spacing = egui::vec2(8.0, 7.0);
+        style.spacing.button_padding = egui::vec2(11.0, 5.0);
+        style.spacing.interact_size.y = 28.0;
+        style.spacing.window_margin = egui::Margin::same(18);
         style.spacing.menu_margin = egui::Margin::same(8);
         style.spacing.indent = 16.0;
         style.spacing.scroll = egui::style::ScrollStyle::thin();
@@ -1194,7 +1559,7 @@ pub fn apply(ctx: &egui::Context) {
             (TextStyle::Small, 12.0),
             (TextStyle::Body, 13.5),
             (TextStyle::Button, 13.5),
-            (TextStyle::Heading, 18.5),
+            (TextStyle::Heading, 19.0),
         ] {
             style.text_styles.insert(role, FontId::proportional(size));
         }

@@ -108,7 +108,7 @@ impl RestoreForm {
         let Some(report) = self.report() else { return };
         let modal = style::modal(ctx, egui::Id::new("restore-diagnostic-report")).show(ctx, |ui| {
             ui.set_width(form_width(ctx, 560.0));
-            ui.heading("SQL 还原诊断报告");
+            style::page_title(ui, "SQL 还原诊断报告");
             let mut text = report.as_str();
             form_scroll(ctx, 116.0).show(ui, |ui| {
                 ui.add(
@@ -191,7 +191,7 @@ impl RestoreForm {
         let mut save_report = false;
         let modal = style::modal(ctx, egui::Id::new("restore-form")).show(ctx, |ui| {
             ui.set_width(form_width(ctx, 600.0));
-            ui.heading("从 SQL 转储文件还原");
+            style::page_title(ui, "从 SQL 转储文件还原");
             ui.add_space(4.0);
             form_scroll(ctx, 150.0).show(ui, |ui| {
                 form_section(ui, "还原目标", |ui| {
