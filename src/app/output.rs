@@ -1662,17 +1662,24 @@ mod tests {
             ));
 
         let first = visible_text(&mut workspace);
-        assert!(first.contains_key("重新读取"));
-        assert!(first.contains_key("sample.editable_items"));
+        // 刷新按钮使用矢量图标，以源表、耗时和空页提示验证当前查询页。
+        assert!(!first.contains_key("执行查询后查看结果。"));
+        assert!(first.contains_key("editable_items"));
+        assert!(first.contains_key("SELECT * FROM sample.editable_items"));
         assert!(first.contains_key("执行 4 毫秒 · 传输 7 毫秒 · 总耗时 11 毫秒"));
 
         workspace.new_tab("SELECT 2".into(), None);
         let second = visible_text(&mut workspace);
         assert!(second.contains_key("执行查询后查看结果。"));
-        assert!(!second.contains_key("sample.editable_items"));
+        assert!(!second.contains_key("editable_items"));
+        assert!(!second.contains_key("SELECT * FROM sample.editable_items"));
         assert!(!second.contains_key("执行 4 毫秒 · 传输 7 毫秒 · 总耗时 11 毫秒"));
 
         workspace.select_tab(0);
-        assert!(visible_text(&mut workspace).contains_key("sample.editable_items"));
+        let restored = visible_text(&mut workspace);
+        assert!(restored.contains_key("editable_items"));
+        assert!(restored.contains_key("SELECT * FROM sample.editable_items"));
+        assert!(restored.contains_key("执行 4 毫秒 · 传输 7 毫秒 · 总耗时 11 毫秒"));
+        assert!(!restored.contains_key("执行查询后查看结果。"));
     }
 }

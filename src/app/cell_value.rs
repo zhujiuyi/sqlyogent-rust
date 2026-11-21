@@ -988,30 +988,63 @@ mod tests {
 
     #[test]
     fn text_replacement_stays_in_the_inspector_and_all_undoes_in_one_step() {
-        let ctx = egui::Context::default();
-        let source = "猫 cat catalog cat cat";
-        let mut inspector = Inspector::edit_typed("内容".into(), source.into(), false, true);
-        frame(&ctx, &mut inspector, Vec::new());
-        frame(&ctx, &mut inspector, Vec::new());
-        frame(&ctx, &mut inspector, vec![key(Key::Home, Modifiers::CTRL)]);
-        frame(&ctx, &mut inspector, vec![key(Key::H, Modifiers::CTRL)]);
-        frame(&ctx, &mut inspector, vec![egui::Event::Text("cat".into())]);
-        click(&ctx, &mut inspector, "替换为");
-        frame(&ctx, &mut inspector, vec![egui::Event::Text("犬".into())]);
-        click(&ctx, &mut inspector, "全字匹配");
-        click(&ctx, &mut inspector, "替换");
-        assert_eq!(inspector.input, source);
-        click(&ctx, &mut inspector, "替换");
-        let one_replaced = "猫 犬 catalog cat cat";
-        assert_eq!(inspector.input, one_replaced);
-        click(&ctx, &mut inspector, "全部替换");
-        assert_eq!(inspector.input, "猫 犬 catalog 犬 犬");
-        assert_eq!(inspector.data, source.as_bytes());
-        assert_eq!(inspector.search.message.as_deref(), Some("已替换 2 处。"));
+        use egui::os::OperatingSystem;
 
-        frame(&ctx, &mut inspector, vec![key(Key::Z, Modifiers::COMMAND)]);
-        assert_eq!(inspector.input, one_replaced);
-        assert_eq!(inspector.value().unwrap(), Cell::Text(one_replaced.into()));
+        for os in [OperatingSystem::Mac, OperatingSystem::Windows] {
+            let ctx = egui::Context::default();
+            ctx.set_os(os);
+            let source = "猫 cat catalog cat cat";
+            let mut inspector = Inspector::edit_typed("内容".into(), source.into(), false, true);
+            // 先完成对话框布局及焦点过滤器注册，再发送导航键。
+            for _ in 0..3 {
+                frame(&ctx, &mut inspector, Vec::new());
+            }
+            let id = ctx.memory(|memory| memory.focused()).unwrap();
+            assert!(
+                TextEdit::load_state(&ctx, id).is_some(),
+                "{os:?} 文本框应已取得焦点"
+            );
+            let (home, modifiers) = if os == OperatingSystem::Mac {
+                (Key::ArrowUp, Modifiers::MAC_CMD | Modifiers::COMMAND)
+            } else {
+                (Key::Home, Modifiers::CTRL | Modifiers::COMMAND)
+            };
+            frame(&ctx, &mut inspector, vec![key(home, modifiers)]);
+            assert_eq!(
+                ctx.memory(|memory| memory.focused()),
+                Some(id),
+                "{os:?} 导航不应离开文本框"
+            );
+            assert_eq!(
+                TextEdit::load_state(&ctx, id)
+                    .unwrap()
+                    .cursor
+                    .char_range()
+                    .unwrap()
+                    .primary
+                    .index,
+                0,
+                "{os:?} 应使用本机快捷键移动到文本开头"
+            );
+            frame(&ctx, &mut inspector, vec![key(Key::H, Modifiers::CTRL)]);
+            frame(&ctx, &mut inspector, vec![egui::Event::Text("cat".into())]);
+            click(&ctx, &mut inspector, "替换为");
+            frame(&ctx, &mut inspector, vec![egui::Event::Text("犬".into())]);
+            click(&ctx, &mut inspector, "全字匹配");
+            click(&ctx, &mut inspector, "替换");
+            assert_eq!(inspector.input, source);
+            click(&ctx, &mut inspector, "替换");
+            let one_replaced = "猫 犬 catalog cat cat";
+            assert_eq!(inspector.input, one_replaced);
+            click(&ctx, &mut inspector, "全部替换");
+            assert_eq!(inspector.input, "猫 犬 catalog 犬 犬");
+            assert_eq!(inspector.data, source.as_bytes());
+            assert_eq!(inspector.search.message.as_deref(), Some("已替换 2 处。"));
+
+            frame(&ctx, &mut inspector, vec![key(Key::Z, modifiers)]);
+            assert_eq!(inspector.input, one_replaced);
+            assert_eq!(inspector.value().unwrap(), Cell::Text(one_replaced.into()));
+        }
     }
 
     #[test]

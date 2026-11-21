@@ -1337,11 +1337,17 @@ mod tests {
             render(builder, vec![button_event(to, primary, false)]);
             render(builder, Vec::new())
         };
-        let row_menu = |builder: &mut Builder, output: &egui::FullOutput, field, action| {
+        let row_menu = |builder: &mut Builder, field, action| {
+            // 删除字段会改变自适应分区高度，须按新一帧布局定位下一次右键。
+            let output = render(builder, Vec::new());
             let menu = click(
                 builder,
-                text_at(output, field),
+                text_at(&output, field),
                 egui::PointerButton::Secondary,
+            );
+            assert!(
+                egui::Popup::is_any_open(&ctx),
+                "字段 {field} 的右键菜单应打开"
             );
             click(
                 builder,
@@ -1351,7 +1357,7 @@ mod tests {
         };
 
         let initial = render(&mut builder, Vec::new());
-        let dropped = drag_column(
+        drag_column(
             &mut builder,
             text_at(&initial, "stock"),
             text_at(&initial, "名称长度"),
@@ -1364,7 +1370,7 @@ mod tests {
         assert_eq!(builder.query.sorts[0].target, Target::Field(sort_field));
 
         let sql = builder.query.sql_with_quoting(false, false).unwrap();
-        let inserted = row_menu(&mut builder, &dropped, "名称长度", "在此字段前插入");
+        let inserted = row_menu(&mut builder, "名称长度", "在此字段前插入");
         assert_eq!(builder.query.fields.len(), 4);
         assert!(builder.query.fields[2].is_placeholder());
         assert!(!builder.query.fields[2].show);
@@ -1376,14 +1382,14 @@ mod tests {
             text_at(&inserted, "选择列或表达式"),
             egui::PointerButton::Primary,
         );
-        let filled = click(
+        click(
             &mut builder,
             text_at(&columns, "label"),
             egui::PointerButton::Primary,
         );
         assert!(builder.query.fields[2].show);
 
-        let removed = row_menu(&mut builder, &filled, "名称长度", "删除字段");
+        row_menu(&mut builder, "名称长度", "删除字段");
         assert_eq!(builder.query.fields.len(), 3);
         assert_eq!(builder.query.sorts.len(), 2);
         let slots = builder
@@ -1392,7 +1398,7 @@ mod tests {
             .iter()
             .map(|field| field.id)
             .collect::<Vec<_>>();
-        let cleared = row_menu(&mut builder, &removed, "商品", "清除全部字段");
+        let cleared = row_menu(&mut builder, "商品", "清除全部字段");
         assert_eq!(
             builder
                 .query

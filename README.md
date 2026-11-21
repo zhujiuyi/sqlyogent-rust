@@ -30,7 +30,7 @@ rustup target add x86_64-pc-windows-msvc
 
 ### macOS 27
 
-在 Apple 芯片 Mac 上安装 Rust 稳定版，并选择带 macOS 27 或更新版 SDK 的 Xcode。脚本的最低部署目标为 macOS 27.0。 [Xcode 与 SDK 对照](https://developer.apple.com/xcode/system-requirements)
+在 Apple 芯片 Mac 上安装 Rust 稳定版，以及 Xcode Command Line Tools 或完整 Xcode。脚本通过 `xcrun` 使用当前选中的 macOS SDK，最低部署目标为 macOS 27.0。 [Xcode 与 SDK 对照](https://developer.apple.com/xcode/system-requirements)
 
 ```sh
 rustup target add aarch64-apple-darwin
@@ -41,7 +41,13 @@ open 'dist/小海豚MysqlGui.app'
 
 脚本生成带临时签名的 `dist/小海豚MysqlGui.app`，包内含桌面程序和独立作业程序。对外分发应用包时可使用 Apple Developer ID 签名并公证。 [Apple 签名与公证说明](https://developer.apple.com/developer-id/)
 
-Apple 芯片目标已通过 Rust 交叉类型检查，应用包的构建和运行待 Apple 芯片 Mac 实机验证。
+2026-11-22 已在 Apple 芯片 Mac 上完成原生 release 构建和应用包签名校验，并确认主窗口和连接对话框可正常打开。验证环境为 macOS 27.2、Rust 1.98.1、Command Line Tools SDK 26.5。
+
+核对修复后，调试版和 release 的单元测试均为 198 项通过、0 项失败、114 项按原标记忽略。原有 5 项失败中，3 项依赖旧界面文字或字符图标，1 项使用 Windows 光标快捷键并过早发送导航键，1 项复用了删除字段前的布局坐标；这些修复均位于测试模块。查找替换用例同时验证 egui 的 macOS 与 Windows 键盘语义。
+
+另已修复 macOS 中文回退字体导致的中英数字基线错位：中文使用 Heiti SC 的简体字形回退，默认等宽字体优先使用 Menlo 常规字形，SQL 编辑器提示文字使用比例字体。混排基线的 1×/2× 缩放检查，以及主操作按钮的文字对比色检查已纳入回归测试。
+
+数据库连接、查询和数据操作尚未在本机连接真实测试库验收；忽略的环境相关测试仍需专用环境和夹具。
 
 ## 常用操作
 

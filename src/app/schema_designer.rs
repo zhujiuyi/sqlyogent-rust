@@ -3378,7 +3378,7 @@ mod tests {
             label_position(&initial, control, 0.0);
         }
         let catalog_table = label_position(&initial, "child_table", 0.0);
-        let destination = label_position(&initial, "从左侧添加表到画布", 200.0);
+        let destination = label_position(&initial, "添加表到画布", 200.0);
         let first = click_or_drag(
             &ctx,
             &mut designer,
@@ -3404,7 +3404,7 @@ mod tests {
         );
         assert!(designer.layout.tables[0].position[1] > before[1] + 20.0);
         let from = label_position(&moved, "parent_id", 200.0);
-        let to = label_position(&moved, "主键  id", 200.0);
+        let to = label_position(&moved, "id", 200.0);
         click_or_drag(&ctx, &mut designer, &mut workspace, from, to);
         let graph = &workspace.schema_designs[schema];
         let tables = tables_by_name(Some(graph));

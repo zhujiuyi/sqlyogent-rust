@@ -47,6 +47,14 @@ impl FontFace {
     }
 }
 
+pub(super) fn load_system_font(path: &Path, index: u32) -> Result<FontData, String> {
+    let bytes = read_font(path)?;
+    font_names(&bytes, index).ok_or("字体不包含可用的字形轮廓。")?;
+    let mut data = FontData::from_owned(bytes);
+    data.index = index;
+    Ok(data)
+}
+
 pub(super) fn catalog() -> Vec<FontFace> {
     let mut seen_paths = BTreeSet::new();
     let mut faces = BTreeMap::new();

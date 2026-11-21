@@ -1,5 +1,5 @@
 use eframe::egui::{
-    self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, RichText, Stroke,
+    self, Color32, CornerRadius, FontDefinitions, FontFamily, FontId, RichText, Stroke,
     TextStyle,
     text::{Galley, LayoutJob, LayoutSection, TextFormat},
 };
@@ -17,6 +17,7 @@ use crate::sql_tools::{EditorTokenKind, editor_tokens};
 use super::{
     completion::vocabulary,
     preferences::{EditorSettings, FontRole, LetterCase, Preferences, SqlColors},
+    system_fonts,
 };
 
 /// 界面主题模式：晴海浅色（默认）与深海暗夜。
@@ -753,7 +754,7 @@ pub fn action_button(
             egui::vec2(icon_w, icon_w),
         );
         paint_toolbar_icon(painter, icon_rect, icon, icon_col);
-        painter.galley(
+        painter.galley_with_override_text_color(
             egui::pos2(
                 icon_rect.right() + gap,
                 rect.center().y - galley.size().y * 0.5,
@@ -1578,20 +1579,20 @@ fn base_fonts() -> &'static FontDefinitions {
             .map(|dir| std::path::PathBuf::from(dir).join("Fonts"))
             .into_iter()
             .flat_map(|dir| {
-                ["msyh.ttc", "deng.ttf", "simhei.ttf", "simsun.ttc"].map(|file| dir.join(file))
+                ["msyh.ttc", "deng.ttf", "simhei.ttf", "simsun.ttc"].map(|file| (dir.join(file), 0))
             });
         #[cfg(target_os = "macos")]
         let mut font_candidates = [
-            "/System/Library/Fonts/PingFang.ttc",
-            // Recent macOS versions store system PingFang in a private outline format.
-            "/System/Library/Fonts/Hiragino Sans GB.ttc",
-            "/System/Library/Fonts/STHeiti Medium.ttc",
-            "/System/Library/Fonts/STHeiti Light.ttc",
+            // Heiti SC 的字形使用接近西文字体的行距；Hiragino Sans GB 的
+            // 0.5em 额外行距会使 egui 回退字形的中文基线高于英文与数字。
+            ("/System/Library/Fonts/STHeiti Light.ttc", 1),
+            ("/System/Library/Fonts/STHeiti Medium.ttc", 1),
+            ("/System/Library/Fonts/Supplemental/Arial Unicode.ttf", 0),
         ]
         .into_iter()
-        .map(std::path::PathBuf::from);
+        .map(|(path, index)| (std::path::PathBuf::from(path), index));
         #[cfg(not(any(windows, target_os = "macos")))]
-        let mut font_candidates = std::iter::empty::<std::path::PathBuf>();
+        let mut font_candidates = std::iter::empty::<(std::path::PathBuf, u32)>();
 
         let mut fonts = FontDefinitions::default();
         #[cfg(windows)]
@@ -1604,15 +1605,12 @@ fn base_fonts() -> &'static FontDefinitions {
         let ui_fonts = [std::path::PathBuf::from("/System/Library/Fonts/SFNS.ttf")].into_iter();
         #[cfg(not(any(windows, target_os = "macos")))]
         let ui_fonts = std::iter::empty::<std::path::PathBuf>();
-        if let Some(bytes) = ui_fonts.into_iter().find_map(|path| {
-            let bytes = std::fs::read(path).ok()?;
-            ttf_parser::Face::parse(&bytes, 0).ok()?;
-            Some(bytes)
-        }) {
+        if let Some(data) = ui_fonts
+            .into_iter()
+            .find_map(|path| system_fonts::load_system_font(&path, 0).ok())
+        {
             let name = "System UI".to_owned();
-            fonts
-                .font_data
-                .insert(name.clone(), FontData::from_owned(bytes).into());
+            fonts.font_data.insert(name.clone(), data.into());
             fonts
                 .families
                 .entry(FontFamily::Proportional)
@@ -1630,37 +1628,31 @@ fn base_fonts() -> &'static FontDefinitions {
             });
         #[cfg(target_os = "macos")]
         let mono_fonts = [
-            "/System/Library/Fonts/SFNSMono.ttf",
+            // SFNSMono.ttf 的默认可变字重为 Light，优先使用常规字重的 Menlo。
             "/System/Library/Fonts/Menlo.ttc",
+            "/System/Library/Fonts/SFNSMono.ttf",
         ]
         .into_iter()
         .map(std::path::PathBuf::from);
         #[cfg(not(any(windows, target_os = "macos")))]
         let mono_fonts = std::iter::empty::<std::path::PathBuf>();
-        if let Some(bytes) = mono_fonts.into_iter().find_map(|path| {
-            let bytes = std::fs::read(path).ok()?;
-            ttf_parser::Face::parse(&bytes, 0).ok()?;
-            Some(bytes)
-        }) {
+        if let Some(data) = mono_fonts
+            .into_iter()
+            .find_map(|path| system_fonts::load_system_font(&path, 0).ok())
+        {
             let name = "System Mono".to_owned();
-            fonts
-                .font_data
-                .insert(name.clone(), FontData::from_owned(bytes).into());
+            fonts.font_data.insert(name.clone(), data.into());
             fonts
                 .families
                 .entry(FontFamily::Monospace)
                 .or_default()
                 .insert(0, name);
         }
-        if let Some(bytes) = font_candidates.find_map(|path| {
-            let bytes = std::fs::read(path).ok()?;
-            ttf_parser::Face::parse(&bytes, 0).ok()?;
-            Some(bytes)
-        }) {
+        if let Some(data) = font_candidates
+            .find_map(|(path, index)| system_fonts::load_system_font(&path, index).ok())
+        {
             let name = "System CJK".to_owned();
-            fonts
-                .font_data
-                .insert(name.clone(), FontData::from_owned(bytes).into());
+            fonts.font_data.insert(name.clone(), data.into());
             for family in [FontFamily::Proportional, FontFamily::Monospace] {
                 fonts.families.entry(family).or_default().push(name.clone());
             }
@@ -2214,6 +2206,66 @@ fn layout_tabs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn macos_mixed_ui_text_shares_a_baseline() {
+        let cjk = base_fonts().font_data.get("System CJK").unwrap();
+        let face = ttf_parser::Face::parse(&cjk.font, cjk.index).unwrap();
+        assert!(face.glyph_index('查').is_some());
+        for pixels_per_point in [1.0, 2.0] {
+            let ctx = egui::Context::default();
+            ctx.set_pixels_per_point(pixels_per_point);
+            apply(&ctx);
+            assert!(apply_font_preferences(&ctx, &mut Preferences::default()).is_empty());
+            let _ = ctx.run(egui::RawInput::default(), |ctx| {
+                for family in [FontFamily::Proportional, FontFamily::Monospace] {
+                    for size in [12.0, 13.5, 14.0, 19.0] {
+                        for label in ["本机MySQL", "查询1", "架构设计1", "每页50行", "输入 SQL 语句"] {
+                            let galley = ctx.fonts_mut(|fonts| fonts.layout_no_wrap(
+                                label.into(), FontId::new(size, family.clone()), Color32::BLACK,
+                            ));
+                            let baselines = galley.rows[0].glyphs.iter()
+                                .filter(|glyph| !glyph.chr.is_whitespace())
+                                .map(|glyph| glyph.pos.y).collect::<Vec<_>>();
+                            let top = baselines.iter().copied().fold(f32::INFINITY, f32::min);
+                            let bottom = baselines.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                            assert!(bottom - top <= 1.0,
+                                "{label} {family:?} size={size} scale={pixels_per_point}: baselines={baselines:?}");
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn primary_action_text_uses_the_contrast_color() {
+        let ctx = egui::Context::default();
+        apply(&ctx);
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                action_button(ui, ToolbarIcon::Run, "执行", ActionTone::Primary, true);
+            });
+        });
+        let text = output.shapes.iter().find(|shape| {
+            matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == "执行")
+        }).unwrap();
+        let painted = ctx.tessellate(vec![text.clone()], output.pixels_per_point);
+        let colors = painted
+            .iter()
+            .filter_map(|shape| {
+                if let egui::epaint::Primitive::Mesh(mesh) = &shape.primitive {
+                    Some(mesh)
+                } else {
+                    None
+                }
+            })
+            .flat_map(|mesh| mesh.vertices.iter().map(|vertex| vertex.color))
+            .collect::<Vec<_>>();
+        assert!(!colors.is_empty());
+        assert!(colors.iter().all(|color| *color == palette().on_accent));
+    }
 
     #[test]
     fn copies_and_saves_sql_with_the_same_safe_case_as_the_editor() {

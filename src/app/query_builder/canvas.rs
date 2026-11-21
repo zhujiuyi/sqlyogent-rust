@@ -1092,15 +1092,32 @@ mod tests {
         builder.metadata.receive(&builder.query, &connection);
 
         let output = render(&ctx, &mut builder, &connection, Vec::new());
-        let stars = text_positions(&output, "*");
-        assert_eq!(stars.len(), 2);
-        for name in ["item_id", "bin_id"] {
+        // 主键已改用矢量钥匙；检查钥匙环的位置，而非旧的星号文字。
+        let key_rings = output
+            .shapes
+            .iter()
+            .filter_map(|item| {
+                if let egui::Shape::Circle(circle) = &item.shape
+                    && circle.stroke.width > 0.0
+                    && item.clip_rect.contains(circle.center)
+                {
+                    Some(circle.center)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        for (name, expected) in [("item_id", 1), ("bin_id", 1), ("quantity", 0)] {
             let column = text_at(&output, name);
-            assert!(
-                stars
+            assert_eq!(
+                key_rings
                     .iter()
-                    .any(|star| star.x < column.x && (star.y - column.y).abs() < 4.0),
-                "主键标记应在列名 {name} 左侧"
+                    .filter(|ring| ring.x < column.x
+                        && column.x - ring.x < 80.0
+                        && (ring.y - column.y).abs() < 4.0)
+                    .count(),
+                expected,
+                "列 {name} 的主键标记数量"
             );
         }
     }

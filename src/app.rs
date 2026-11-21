@@ -4134,6 +4134,7 @@ impl Workbench {
                         .id(id)
                         .layouter(&mut layouter)
                         .hint_text("输入 SQL 语句，或打开 SQL 文件…")
+                        .hint_text_font(egui::FontId::proportional(settings.font.id().size))
                         .code_editor()
                         .font(settings.font.id())
                         .desired_width(f32::INFINITY)

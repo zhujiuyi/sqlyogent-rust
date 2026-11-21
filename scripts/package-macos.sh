@@ -2,17 +2,13 @@
 set -eu
 
 if [ "$(uname -s)" != Darwin ]; then
-    printf '%s\n' '请在装有 Xcode 27 或更高版本的 Mac 上生成 .app。' >&2
+    printf '%s\n' '请在装有 Xcode Command Line Tools 或 Xcode 的 Mac 上生成 .app。' >&2
     exit 1
 fi
 
 cd "$(dirname "$0")/.."
 sdk_version=$(xcrun --sdk macosx --show-sdk-version)
-sdk_major=$(printf '%s' "$sdk_version" | cut -d. -f1)
-if [ "$sdk_major" -lt 27 ]; then
-    printf '%s\n' '请选择包含 macOS 27 SDK 的 Xcode。' >&2
-    exit 1
-fi
+printf '使用 macOS %s SDK 构建，最低运行版本为 macOS 27.0。\n' "$sdk_version"
 
 target=aarch64-apple-darwin
 export MACOSX_DEPLOYMENT_TARGET=27.0
